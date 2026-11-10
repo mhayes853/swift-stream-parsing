@@ -553,7 +553,9 @@ func streamMatchFieldIndexed(
 
 // Outlined on purpose. Measured inlined (`@inline(__always)`): `PartialSink.key` dropped from 12
 // callee-saved registers to 6, but the linear scan then stayed out of line as a call to
-// `streamMatchField`, and typed Twitter / Twitter escaped lost 5-6%.
+// `streamMatchField`, and typed Twitter / Twitter escaped lost 5-6%. `PartialSink.key`'s table arm
+// no longer calls this: its scan stops at the first candidate and `matchTableKeyTail` carries the
+// same compare inline, which is what took the call out of `key`'s loop.
 @usableFromInline
 @inline(never)
 func streamFieldTailMatches(

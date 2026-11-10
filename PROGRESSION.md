@@ -5905,3 +5905,645 @@ table-string changes are not in this build. The Mesh 16KB rows include the chunk
 | Real Twitter full - bulk discarding | +13.1% [+12.7 .. +13.4] |
 | Real Twitter spaced - bulk | +4.9% [+4.8 .. +5.1] |
 | Real Twitter spaced - bulk discarding | +3.9% [+3.8 .. +4.1] |
+
+## Landed: a run of `\u` escapes decoded in one call, hex quads in a general-purpose register
+
+*Recorded 2026-11-10.*
+
+`twitterescaped` holds 31,818 `\u` escapes in 1,715 runs (mean run 18.5) and 1,228 simple
+escapes; 31,770 of the `\u` escapes are three-byte scalars, 28 two-byte, and 10 are surrogate
+pairs. The coalescing tail answered each one by decoding it, scanning a zero-length run, reading
+the next backslash and calling back in.
+
+- `coalescedUnicodeEscapeEnd` keeps decoding while the next bytes are another escape it can take
+  whole (a `\uXXXX`, a surrogate pair, or a simple escape), with the buffer's fill count held in a
+  register, and returns where the first escape it cannot take starts. Which escapes fall back to
+  the per-byte states, and every error offset, are unchanged. The unbuffered arm (a key's escape)
+  keeps `fusedUnicodeEscapeEnd`, one escape per call.
+- `streamHexQuad` validates and decodes four digits with SWAR range tests in one 32-bit register
+  instead of SIMD4, whose result crossed from a vector register (`uminv` + `fmov`, `addv` + `fmov`).
+
+Profile of raw Twitter escaped with v3: the tail 17% → 3.6%, the staging scan 8.2% → 2.2%, the
+escape function 29% (it absorbs `bufferStringScratch`). New tests: the hex quad against a
+per-character decode on every byte in every lane, a `\u` run cut at every offset with 64- and
+4096-byte buffers, a run delivered as one chunk.
+
+### Measured
+
+*Recorded 2026-11-10.*
+
+Variants against 312c63d1, aligned, 3 rounds, median p0. v0 is the SWAR hex quad alone, v1 the run
+loop with the SIMD4 quad, v2 the loop with the SWAR quad, v3 adds simple escapes inside the run
+(landed), v5 decodes two escapes a step (below).
+
+| Row | v0 | v1 | v2 | v3 | v5 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Twitter escaped - bulk (raw) | +0.8% | +14.8% | +29.8% | +29.4% | +34.9% |
+| Twitter escaped - bulk discarding (typed) | +1.5% | +14.9% | +14.9% | +16.9% | +18.6% |
+| Fast Unicode escaped string - bulk | +5.4% | +35.7% | +95.0% | +90.3% | +54.4% |
+
+Gate, v3 against 312c63d1 (load 30–130): Twitter escaped +33.0% [+29.6 .. +33.4] raw, +22.0%
+[+17.1 .. +22.1] typed. No other row was beyond -2.5% in more than one gate (GitHub raw -4.0% here,
++1.0% in another; GSoC typed -3.1% here, +5.6% in the other).
+
+### Measured: on top of the unescape kernel
+
+*Recorded 2026-11-10.*
+
+With the unescape kernel in place the run loop sees only the escapes the kernel hands back. 9e1e98dc
+against 9e1e98dc plus this change, aligned, 3 rounds, median p0 [per-round range]:
+
+| Row | Change |
+| --- | ---: |
+| Real Twitter escaped - bulk | +5.5% [+5.5 .. +6.0] |
+| Real Twitter escaped - bulk discarding | +3.8% [+3.7 .. +5.1] |
+| Real Twitter escaped - byte by byte | +9.1% [+9.0 .. +13.2] |
+| Real Twitter escaped - byte by byte discarding | +0.1% [-0.1 .. +4.2] |
+| Fast Unicode escaped string - bulk | +57.3% [+53.6 .. +58.5] |
+| Fast Escaped string - bulk | -1.8% [-2.7 .. +0.0] |
+| Real GitHub events - bulk | -1.7% [-5.7 .. -0.2] |
+| Real GitHub events - bulk discarding | -1.9% [-4.6 .. -0.2] |
+| Real GSoC 2018 - bulk / discarding | -0.3% [-5.8 .. +0.1] / -0.0% [-5.6 .. +0.4] |
+| Real LLM message - bulk / discarding | -0.6% [-5.2 .. +0.5] / +0.0% [-5.3 .. +1.6] |
+| Real LLM message - byte by byte / discarding | +0.6% [-3.4 .. +2.5] / +0.1% [-4.1 .. +0.1] |
+| Real Twitter - bulk / discarding | -0.2% [-1.2 .. -0.2] / -0.1% [-1.0 .. -0.1] |
+
+The byte-by-byte path cannot reach the run loop, which needs the escape's six bytes in the chunk;
+the same row read +8.6% to +9.1% in three other gates this session whose changes did not touch it
+(see "Rejected: six reworks of the structural block walk").
+
+### Rejected: two escapes a step
+
+*Recorded 2026-11-10.*
+
+v5 decodes two `\u` escapes a step (`streamHexQuadPair`, a 64-bit SWAR word) and breaks on any
+surrogate. v6 also takes a scalar then a surrogate singly and a pair whole; the compiler
+if-converted `utf8Word` to `csel`, so the fill count depended on the decode. v7 takes a pair as one
+12-byte unit with its own four-byte encoder. Against 312c63d1, 3 rounds (two passes where two
+numbers are given):
+
+| Row | v3 | v5 | v6 | v7 |
+| --- | ---: | ---: | ---: | ---: |
+| Twitter escaped - bulk (raw) | +29.4% | +36.2% / +34.6% | +28.0% | +32.4% |
+| Twitter escaped - bulk discarding (typed) | +16.9% / +16.8% | +19.2% / +18.9% | +14.8% | +17.1% |
+| Fast Unicode escaped string - bulk | +90.0% / +91.3% | +53.5% / +53.5% | +58.3% | +96.2% |
+| GSoC 2018 - bulk | -0.2% | -0.2% | | -2.2% |
+
+v7 against v5: Twitter escaped -1.6% / -1.5%, the synthetic row +27.9%. v3 landed.
+
+## Landed: the skip classifier's masks from a deinterleaved load
+
+*Recorded 2026-11-10.*
+
+`stream_parsing_classify_skip_block` loads its block with `vld4q_u8`, so vector j lane i holds byte
+4i + j, and builds each of its five masks with `stream_parsing_movemask4_deinterleaved`: three
+shift-right-inserts stack the four vectors' top bits into one lane's high nibble, a fourth copies
+the nibble down, and `shrn #4` packs the word. That replaces four `and`s and three `addp`s per mask.
+Only bit 7 of each lane is read, so the bracket class, which is bit 7 of the class byte, needs no
+test, and the accepted test lowers to one `cmtst` instead of `and` / `cmeq` / `bic`. The skip loop
+advances by 64 whatever the masks say, so it runs at the kernel's throughput and the extra latency
+of `ld4` is hidden.
+
+The kernel alone, ns per 64-byte block, min of 30 repetitions (load about 100). The dependent
+column chains each block's quote mask into the next address:
+
+| Variant | Twitter | CITM | GSoC | LLM | Twitter, dependent |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| four loads, `movemask4` (base) | 8.56 | 8.03 | 6.73 | 4.97 | 16.01 |
+| `ld4` + shift-insert | 7.93 | 7.05 | 6.85 | 5.22 | 17.77 |
+| `ld4` + shift-insert, brackets from bit 7 (landed) | 7.61 | 6.75 | 6.74 | 5.20 | 17.60 |
+| `uzp`, brackets from bit 7 | 7.87 | 6.92 | 6.94 | 5.42 | |
+
+GSoC and LLM blocks are mostly inside strings, where the kernel returns after two masks; `ld4`
+gains nothing there. Every corpus at 64 phases under zero and chained carries, 1 MB of random bytes,
+and every byte value at every position classify identically. `BlockClassifierTests` holds both
+classifiers, field by field, to a byte-at-a-time restatement; swapping one shift-insert's operands
+fails it.
+
+### Measured: the gate
+
+*Recorded 2026-11-10.*
+
+Against 9e1e98dc, aligned, 3 rounds, median p0:
+
+| Row | Change |
+| --- | ---: |
+| Twitter, typed | +2.7% [+2.7 .. +3.9] |
+| Twitter 16KB, typed | +2.3% |
+| GitHub events, typed | +2.1% |
+| Qwen 3 structured response, typed | +1.6% |
+| Twitter escaped, typed | +1.4% |
+| Twitter spaced, typed | +1.3% |
+| GitHub events, raw | -2.2% [-2.4 .. 0.0] |
+| Qwen 3 structured response, raw | -2.3% [-2.3 .. 0.0] |
+| Canada 16KB, typed | -1.7% [-1.7 .. +0.2] |
+| GSoC 2018 16KB, typed | -1.3% |
+| Twitter escaped byte by byte, raw | +9.1% |
+
+Raw rows never skip; their kernel is unchanged.
+
+### Rejected: the same load in the structural classifier
+
+*Recorded 2026-11-10.*
+
+The kernel alone, ns per block:
+
+| Variant | Throughput | Dependent |
+| --- | ---: | ---: |
+| four loads, `movemask4` (base) | 9.99 | 15.77 |
+| `ld4` + shift-insert | 8.57 | 16.86 |
+| four loads, eight `uzp`, shift-insert | 8.89 | 17.40 |
+| four loads, pairs sharing the last `addp` | 9.80 | 16.93 |
+| `addp` for the backslash and quote masks, `ld4` for the rest | 9.22 | 16.30 |
+| the same with whitespace on plain loads too | 9.30 | 15.11 |
+| an opaque barrier keeping `cmtst` + `and` | 9.18 (against 9.44) | equal |
+
+From the load to the quote mask to the next address: 25.4 cycles with `addp`, 30.1 with `ld4` and
+shift-insert, 26.6 with plain loads and shift-insert, 29.7 with `ld4` and `addp`. The block walk
+re-anchors on tokens and waits on `starts`. With `ld4` + shift-insert in both classifiers, against
+the skip change alone: raw Twitter -4.8% [-5.3 .. -4.6], Twitter 16KB -4.7%, CITM -4.3%, GitHub
+-4.3%, Twitter spaced -3.4%, GSoC -2.8%, Fast Pretty printed -4.9%; typed CITM +1.4%, Twitter full
++0.9%, Twitter spaced +0.6%, Twitter +0.2%. The structural classifier keeps plain loads, and its
+comment says why.
+
+## Landed: a frameless `PartialSink.key`, string opens constructed in place, mid-size template copies through one witness call
+
+*Recorded 2026-11-10.*
+
+Three changes on the typed layer's key and open paths.
+
+- **`key`.** It saved six register pairs per key (236 instructions): the table scan called
+  `streamFieldTailMatches` from inside its loop and kept nine values live across the call. The scan
+  (`matchTableKey`) now stops at the first entry whose first word and length match; a key of at
+  most a word is stored there, and a longer one tail-calls `matchTableKeyTail` (linear and indexed
+  forms), a leaf with the tail compare inline. The dictionary and closure arms are tail-called
+  helpers (`dictionaryKey`, `closureKey`). `key` is frameless, 116 instructions, and
+  `@inline(never)`: at that size the walk inlined it, `consumeStructuralBlocks<PartialSink>` grew
+  1383 → 1550 instructions and `consumeStructuralRun` 1919 → 1973, and typed Twitter, GitHub and
+  Qwen structured lost 2.0–3.7%.
+- **String element and dictionary-value opens.** `_openElement(_:)` drained the closed element,
+  re-marked the box `nil`, then assigned over it, destroying that `nil` out of line through the
+  optional's metadata (`getEnumTagSinglePayload` and a mangled-name lookup) per element.
+  `StreamString` and `StreamString?` elements open with `_openElement(constructing:)` and the
+  dictionary string routes with `_openValue(forKey:constructingSome:)`. The destroy is left only on
+  an array's first open.
+- **Template copies of 128 to 1024 bytes.** `_streamCopyInitialize` copies through `_streamCopyOut`,
+  an unspecialised function (`@_semantics("optimize.sil.specialize.generic.never")`) that is six
+  instructions: a tail call into `T`'s `initializeWithCopy` witness writing the indirect result. The
+  caller moves the result into the slot with one `memcpy`. `initialize(from:count:)` reached the same
+  witness through `swift_arrayInitWithCopy` and a type-descriptor lookup. Above 1024 bytes the runtime
+  path stays; Embedded Swift keeps it throughout.
+
+### Measured
+
+*Recorded 2026-11-10.*
+
+Typed rows, 3 rounds, median p0. v1c is the frameless `key` without `@inline(never)`, v2 adds the
+uncapped copy-out, v3 the constructed opens, v4 `@inline(never)` on `key`, v5 the 1024-byte cap
+(landed).
+
+| Step | Effect |
+| --- | --- |
+| base → v1c (load about 4) | Twitter -2%, GitHub -2.6%, Qwen structured -3.7%, GSoC -1.1%, CITM +1.2% |
+| v1c → v2 | LLM +1.0%, Qwen edit +1.7%, Qwen structured +1.0%, Twitter spaced +1.0%, CITM +0.5%, Twitter +0.4%, Twitter full -3.8% |
+| v2 → v3 | Qwen structured +2.4% .. +3.2%, Dictionary 128 +0.6% .. +1.0%, Qwen edit +0.4% .. +1.2%, rest flat |
+| v3 → v4 | Twitter +3.2%, Twitter escaped +3.1%, Twitter spaced +3.1%, GitHub +3.7%, Qwen structured +3.7%, Qwen edit +2.3% .. +4.2%, Twitter full +2.2%, GSoC +0.2% .. +1.4%, CITM 0 |
+| v4 → v5 | Twitter full +4.6% .. +5.2%; against uncapped, Qwen edit -1.6% .. +0.4%, LLM -0.5% .. -0.9% |
+
+Twitter full's partials are 11,376 B (`TweetFull`), 5,688 (`RetweetedStatusFull`), 2,302
+(`UserFull`), 2,172 (`Entities`) and 1,168 (`Media`). Attribution in one order (frameless `key`,
+then constructed opens, then the copy): `key` alone Twitter +1.0%, Twitter escaped +1.0%, Twitter
+spaced +1.1%, CITM +1.3%, Qwen structured +1.6%, Qwen edit +2.4%, LLM +1.0%, Twitter full +0.7%;
+the opens on top Twitter escaped -2.7%, Qwen edit -3.6%, GSoC -1.0%, LLM -0.9%; the copy on top
+recovered them (Twitter escaped +3.1%, Qwen edit +5.2%). In the other order the opens read Qwen
+structured +2.7%, Qwen edit +0.8%, Twitter escaped +0.3%. Twitter escaped has no string arrays, so
+the per-commit numbers look like placement; the set is what was measured.
+
+### Rejected: `key` with a frame, or inlined into the walk
+
+*Recorded 2026-11-10.*
+
+v1a outlined only the dictionary and closure arms: still six pairs, Twitter -2.5% .. -3% in the
+clean rounds. v1b sent keys longer than a word to an outlined copy of the old match: `key`
+frameless, Twitter -1.0% [-1.4 .. -0.9], Qwen structured +1.5%. In v1a and v1c the walk inlined
+`key`.
+
+### Rejected: an unspecialised `initialize(to:)` helper
+
+*Recorded 2026-11-10.*
+
+Rejected on the disassembly, not measured. `slot.initialize(to: template.pointee)` in an
+unspecialised helper stages the value (an alloca, a witness copy into it, a call to the standard
+library's `initialize(to:)`, which is a witness take); without the semantics attribute
+cross-module optimisation specialises it in the client, which is two staged `memcpy`s and an
+outlined copy again; `initialize(repeating:count: 1)` is a witness copy to a temporary, a call and a
+destroy.
+
+### Measured: the gate
+
+*Recorded 2026-11-10.*
+
+The three changes against 9e1e98dc, aligned, 3 rounds, load about 4:
+
+| Row | Change |
+| --- | ---: |
+| Qwen 3 structured response, typed | +4.3% |
+| Qwen 3 workspace edit, typed | +4.2% [+2.1 .. +4.4] |
+| GitHub events, typed | +2.0% |
+| Twitter, typed bulk / 16KB | +1.7% / +1.4% |
+| Twitter spaced, typed | +1.7% |
+| CITM catalog, typed bulk / 16KB | +1.6% / +1.7% |
+| LLM message, typed bulk / 16KB | +0.9% / +1.5% |
+| Twitter escaped, typed | +1.1% |
+| Twitter full, bulk / 16KB | +0.9% / +1.1% |
+| GSoC 2018, typed bulk / 16KB | -0.5% [-1.0 .. -0.3] / +0.2% |
+| Canada, Mesh, typed | 0 |
+| LLM message, raw bulk / 16KB | -0.7% / -0.6% |
+| Twitter escaped byte by byte, raw | +8.9% |
+
+The raw code is unchanged.
+
+## Landed: typed array numbers and SIMD lanes finish in a frameless `PartialSink.number`
+
+*Recorded 2026-11-10.*
+
+Census: Canada's 111,126 numbers are 101,338 past Clinger's tier (91%), 9,742 exact and 46
+integers, with 17,775 transitions between those classes; Mesh's 73,014 are 40,614
+integers and 32,400 exact, none past Clinger. `number` saved twelve registers (342 instructions)
+for every `[Double]` / `[Int]` element and SIMD lane because the object-table arm was inlined into
+it, and each `Double` went through two more frames, the generic initializer and an outlined
+Eisel–Lemire.
+
+- **A frameless `number`.** The three homogeneous routes finish with no call when the token
+  converts on the exact tier (`streamParseDoubleExact`, `streamParseIntExact`) and the slot is
+  ready: `StreamArray.appendClosedIfReady` (no open element, room in a tail already proved unique)
+  or a lane inside the arity. Every miss tail-calls the outlined full path
+  (`appendHomogeneousDouble` / `Int`, `storeSIMDDoubleLane`), the typed slots tail-call
+  `applyKnownNumber`, and the object and closure routes tail-call `numberRouted`.
+  `streamEiselLemire` is forced inline, so the full paths hold the kernel in their own frame.
+  `number` was then 128 instructions and saved no registers; a `[Double]` hit is about 40
+  instructions ending in `ret`. A first version that outlined only the default arm kept five pairs: any call in
+  the function keeps the frame. It was not measured.
+- **SIMD elements open and close without a call.** `beginArray` opens a non-optional
+  `SIMD2/3/4<Double>` element itself when nothing needs a call
+  (`openSIMDDoubleElementIfReady`: `StreamArray.openElementIfReady`, the frame pushed inline, the
+  schema from the parent's element schema so the global's lazy accessor stays off the path). The
+  full open (`openKnownSIMDDoubleElement`) is tail-called and pushes through `pushSIMDDoubleFrame`,
+  with the route word and cursor written as constants. `endArray` closes a lane frame with the
+  arity from the route and the pop inline, framelessly; anything else tail-calls `endArrayRouted`.
+- **Lanes ask Eisel–Lemire first.** In the profile of the two changes above, the hottest instruction
+  in `number` (4.6% of typed Canada's samples) followed Clinger's `<= 2^53` branch: 9% of Canada's
+  coordinates are exact at random positions. A lane now tail-calls `storeSIMDDoubleLaneByKernel`,
+  which converts with `streamParseDoubleKernel` (`@_transparent`; as `@inline(__always)` it stayed a
+  call) and stores with no frame; a decline or an arity overflow tail-calls the full lane path.
+  Every tier is correctly rounded, so values are unchanged. Lanes that are short exact decimals
+  (Mesh's influences) now pay the kernel instead of an `fdiv`.
+
+In typed Canada the sink's share went from 31.1% (`number` 4.4, the initializer 7.4, Eisel–Lemire
+10.5, `openKnownSIMDDoubleElement` 3.5, `endArray` 2.9, `pushFrame` 2.4) to 26.8%
+(`storeSIMDDoubleLane` 12.4, `number` 8.5, `beginArray` 3.6, `endArray` 2.3) before the third
+change. `HomogeneousNumberRouteTests` pins the routes' values and refusals at every chunk size; the
+float differential pins `streamParseDoubleInline` to the initializer on both corpora, the edge
+tokens and 20,000 seeded random decimals, and the kernel alone on every token.
+
+### Measured
+
+*Recorded 2026-11-10.*
+
+Typed rows against 9e1e98dc, aligned, 5 rounds, load 4–6. v6 is the frameless `number` and the
+SIMD opens; v8 adds the lanes' Eisel–Lemire first. Both include the count-store change below.
+
+| Row | v6 | v8 | v8 against v6 |
+| --- | ---: | ---: | ---: |
+| Canada, bulk / 16KB | +4.9% / +4.8% | +12.0% / +11.8% | +6.7% / +6.7% |
+| Mesh, bulk / 16KB | +7.2% / +7.2% | +6.3% / +6.2% | -0.8% / -1.0% |
+| Separators numbers (two rows) | +13.3% / +15.3% | +12.3% / +13.6% | -0.9% / -1.5% |
+| CITM catalog | -0.3% | -0.8% | -0.5% |
+| Twitter | +0.3% | -0.1% | -0.4% |
+| GitHub events | -0.3% | -0.8% | |
+| Fixed array composite | -1.1% | -1.6% | |
+
+Every round had the same sign in the v8-against-v6 column. The Eisel–Lemire-first step trades
+Canada +6.7% for Mesh -0.8%, and was kept.
+
+### Rejected: one count store in `StreamArray.advance`
+
+*Recorded 2026-11-10.*
+
+`advance()` skipped the block header's count store for POD elements, with a `sealedCount` for the
+readers of sealed blocks. v6 against v6 without it, 5 rounds: Canada -0.6%, Mesh +0.2%, Separators
+numbers -0.6% / -0.8%, Fixed array +0.5% / +1.1%. A wash, and it broke a white-box test
+(`StreamArrayTests`, "Appending detaches a shared tail").
+
+### Measured: the gate
+
+*Recorded 2026-11-10.*
+
+The landed three against 9e1e98dc, aligned, 3 rounds, load 3–9, typed rows:
+
+| Row | Change |
+| --- | ---: |
+| Canada, bulk / 16KB | +12.2% / +12.1% |
+| Canada streamInitialValue | +12.2% |
+| Separators numbers | +12.9% .. +14.8% |
+| Mesh, bulk / 16KB | +5.9% / +5.8% |
+| Mesh dynamic influences | +3.2% |
+| Mesh capacity hint | +2.9% |
+| Twitter full | +1.4% |
+| Twitter spaced | +1.0% |
+| Canada dynamic coordinates / capacity hint | ~0 |
+| CITM catalog, bulk / 16KB | -0.9% / -0.8% (every round) |
+| Fixed array composite | -1.5% (every round) |
+| Qwen 3 structured response | -0.4% (mixed) |
+| Every raw row | 0.0% ± 0.3% |
+
+Canada's dynamic rows parse `[[[Double]]]`, whose pairs miss the fast path.
+
+## Landed: runs of three-byte `\u` escapes decoded four at a time in the unescape kernel
+
+*Recorded 2026-11-10.*
+
+The kernel alone over every escaped tail took 166.5 µs on Twitter escaped (52.7 ns a block, 5.2 ns
+a `\u`), against 169.5 on LLM message and 220 on GSoC. 85% of `twitterescaped`'s escapes are in runs
+of eight or more three-byte scalars.
+
+- `stream_parsing_unescape_bmp_run` (out of line, entered from the block walk when the bytes 6 and 18
+  past the escape's backslash are backslashes too) checks the shape of four escapes with NEON and, when all four are
+  three-byte non-surrogate scalars, writes their twelve UTF-8 bytes from two `tbl` gathers and two
+  per-lane shifts (`stream_parsing_unescape_four_bmp`); then two more for a run's remainder. A run
+  may continue past its block as far as the chunk's and the buffer's slack allow. It first turns
+  away an escape whose digits, or the next one's, begin with `0` or `d`/`D`.
+- A surrogate pair inside a block is decoded as two six-byte escapes, so a decode never edits the
+  walk's escape mask. Taking twelve bytes made the walk clear the partner's bit with a `csel` on
+  `taken`, which put the decode on the path to the next escape's position.
+- The kernel keeps its own copy of the three UTF-8 tables; `EscapedTailBlockTests` holds them to the
+  Swift ones through `stream_parsing_unescape_utf8_table`. Its callers, out-of-module sink
+  specialisations, called three getters per entry.
+- The run's branch is marked unlikely so LLVM saves the vector registers around the call rather
+  than at every entry to the walk.
+
+The kernel alone on Twitter escaped:
+
+| Step | µs |
+| --- | ---: |
+| pairs as two escapes (v1) | 161.7 → 149.5 |
+| four at a time, inline, constants hoisted into d8–d15 (v2) | 85 |
+| the run out of line (v3) | 87.5 |
+| the run past its block (v5; bounded to the block's slack, 85.2) | 70.2 |
+| the two-escape remainder (v8) | 69.0–70.7 → 62.9–65.8 |
+
+On `Fast Unicode escaped string` (two-byte scalars and surrogate pairs) the kernel alone took 4.9 µs
+before this, 13.6 with the shape check unguarded and 8.8 with the lead-digit test. Twelve mutations
+of the shape check, the pair rules, the run advance and the remainder were each caught by the new
+tests.
+
+### Measured: the gate
+
+*Recorded 2026-11-10.*
+
+Against 9e1e98dc plus the `\u` run loop, aligned, 3 rounds, quiet machine: Twitter escaped bulk
++19.3% [+19.2 .. +20.6] raw, +12.6% [+12.5 .. +12.7] typed; byte by byte +0.1% / 0.0%; the other
+41 rows within -0.8% .. +1.2%.
+
+### Rejected: UTF-8 validated in one pass at the kernel's exit
+
+*Recorded 2026-11-10.*
+
+Without validation the kernel took LLM 169.5 → 134.0 µs (validation is 21%) and GSoC 220 → 213.
+`stream_parsing_utf8_validate_neon` over the source at the kernel's exit, when an accumulator saw a
+high byte, in place of the per-block vectors: LLM 214.5 µs (+26%), GSoC 213.5, Twitter escaped
+162.9. It runs about 5 ns per 64 bytes over every byte of a tail with any non-ASCII, and every LLM
+tail has some; the per-block placement validates one vector a block. A post-pass over flagged
+blocks (5,080 blocks × 4 vectors) was estimated at the same 35 µs and not built.
+`__builtin_expect(validating > 0, 1)` was noise.
+
+### Rejected: a branch-free walk decoding every escape
+
+*Recorded 2026-11-10.*
+
+Every escape decoded independently with a `csel` UTF-8 encode: Twitter escaped 336 µs (2× the
+baseline), LLM 218. It is instruction-bound, and the baseline's branches predict on uniform text.
+
+### Rejected: the lead-digit test at the call
+
+*Recorded 2026-11-10.*
+
+Without the test (v8), against 9e1e98dc: Fast Unicode escaped string -59.5% [-61.1 .. -59.5], every
+escape entering the run and failing. With the test in the walk at the call (v10), against 9e1e98dc
+plus the run loop: Twitter escaped +19.8% / +12.6%, LLM bulk -3.0% [-3.1 .. -2.9], typed -1.7%,
+16KB -3.1% / -1.9%, Fast Escaped string -11.6% [-12.3 .. -11.6], GSoC -0.9%. The extra loads and
+compares raised register pressure in a loop with a call, and the kernel spilled `wide` (the
+validation state) with a store and a reload per validated block. The test moved inside
+`stream_parsing_unescape_bmp_run`.
+
+### Rejected: the run inline with opaque constants
+
+*Recorded 2026-11-10.*
+
+v11 inlined the run with its fourteen constants in a table behind a pointer made opaque by an empty
+`asm`: the block loop was spill-free and the kernel alone as fast as the out-of-line run (also at
+`-Os`, which SwiftPM uses for C). Raw Twitter escaped read +6.2% [+4.7 .. +6.3] against 9e1e98dc plus
+the run loop where the out-of-line form read +20.8% [+20.3 .. +20.9] in the same rounds (1679 against
+1916 MB/s). The cause was not identified.
+
+### Measured: the typed second copy
+
+*Recorded 2026-11-10.*
+
+LLM's escaped tails have a median of 1,870 bytes, under the 4,096-byte buffer, so each value is
+flushed once, whole. `memmove` is 6.2% of typed LLM: 1 MB copied at about 55 GB/s. Only decoding
+into `StreamString`'s storage would remove it, which is the lend measured and rejected earlier. Not
+built.
+
+## Rejected: six reworks of the structural block walk
+
+*Recorded 2026-11-10.*
+
+Thirteen variants of `consumeStructuralBlocks` were built and none landed. The tests written for
+them did (`StructuralBlockWalkTests`: strings crossing a block edge with every kind of byte at every
+position on both sides, closing at every distance past the edge, and cut by the chunk anywhere).
+
+In the baseline `FastCountingSink` walk (1,184 instructions) `state` is loaded from `[x3]` at 14
+sites, `depth` through a pointer in a callee-saved register, and the container stack through a
+stack slot holding its address. x19–x28 are all in use and six caller-saved values are reloaded
+after every call. A control build of the baseline in the experiment's worktree had byte-identical
+hot symbols and read 0.0% ± 0.2% on every row.
+
+### Rejected: the walk's state in registers
+
+*Recorded 2026-11-10.*
+
+Four forms, all against 9e1e98dc, 3 rounds (v7a and v7b in a run with one round disturbed by
+outside load):
+
+| Form | Code | Result |
+| --- | --- | --- |
+| v1: `state`, `depth`, `containers` as locals, written back by `defer` | 1,184 → 1,328 instructions; `state` in a caller-saved register, rematerialised after calls; `depth` spilled around them | CITM -2.1% raw / -2.4% typed (every round), GitHub -1.0% / -1.2%, LLM -2.7% / -1.8%, GSoC raw -1.4%, Twitter raw -1.2% |
+| v5: `state` alone as a local | | measured only in a run discarded for outside load |
+| v7a: the fields read directly, no `inout` parameters | frame 0x160 → 0x120, stack loads 77 → 45 | -0.5% .. -1.8% on most rows (GitHub typed -1.4%, Twitter -1.4% / -0.9%, CITM raw -1.8%) |
+| v7b: v7a with `state` in a callee-saved register | | raw -1% .. -2%, typed ±0.5% |
+
+In the profile of v7b the sample cluster at `ldrb w8, [x3]` (10.4%) moved to the byte load before it:
+it is the dispatch branch resolving, not the state load.
+
+### Rejected: the string edge scan from the first backslash, the escape run off the masks
+
+*Recorded 2026-11-10.*
+
+For a string that does not close in its block, the scan starts at
+`p + tzcnt(backslash & ~consumed)` (64 when there is none) seeded with the block's non-ASCII flag
+(K2a), instead of at the opening quote. For a string with an escape in the block, the run up to the
+first backslash is read off the mask with no scan (K2b). The pair measured positive; each half alone
+did not. 5 rounds, load 2.5–5, median p0 [range] against 9e1e98dc:
+
+| Row | K2a + K2b | K2a | K2b |
+| --- | ---: | ---: | ---: |
+| CITM, typed | +1.5% [+1.2 .. +1.7] | -1.6% [-1.8 .. -1.3] | -1.0% [-1.1 .. -0.8] |
+| Twitter, typed | +0.8% [+0.6 .. +1.0] | -0.5% [-1.4 .. -0.4] | -0.7% [-1.0 .. -0.4] |
+| Twitter spaced, typed | +1.3% [+1.2 .. +1.5] | -0.7% [-0.9 .. -0.3] | -0.5% [-0.7 .. -0.3] |
+| Twitter full, typed | +1.0% [+0.7 .. +1.7] | -0.1% | -0.2% |
+| GitHub, typed | +0.6% | -0.1% | -0.9% |
+| CITM, raw | -0.7% | -2.2% [-2.2 .. -2.2] | -0.3% |
+| Twitter, raw | -0.7% | -0.5% | -0.3% |
+| Pretty printed - bulk | -3.6% [-4.3 .. -1.5] | -5.7% [-6.4 .. -2.9] | -0.8% |
+| Twitter escaped - byte by byte | +8.7% [+8.6 .. +8.8] | 0.0% | +3.2% [+3.0 .. +3.3] |
+| LLM - byte by byte, typed | -3.3% [-3.4 .. -3.2] | +0.2% | +0.2% |
+
+CITM has no escapes and K2b touches only the escape arm, yet K2b alone moved typed CITM -1.0%. The
+pair's typed gain is the code placement of that exact source, the best of thirteen variants, not the
+mechanism; it was not expected to survive next to other changes in the module. The Pretty printed
+loss follows K2a.
+
+### Rejected: the quote decision off the mask
+
+*Recorded 2026-11-10.*
+
+`tbz` on the quote mask's bit, then the state compare, instead of a byte load. Built on K2 and the
+mask advance below; 5 rounds, load 3–5, against 9e1e98dc: raw GitHub +4.0%, Twitter +2.6%; typed CITM
+-1.9% [-2.7 .. -1.6], CITM 16KB -1.5%, Twitter -1.0%, Twitter escaped -0.9%, Twitter spaced -0.9%,
+Twitter full -0.8%, GitHub -1.0%, every round. Its own share: raw +1.3% .. +1.9%, typed -0.6% ..
+-2.6%.
+
+### Rejected: the mask advanced before the emit
+
+*Recorded 2026-11-10.*
+
+For an in-block string or key, the mask is advanced past the token before the emit (a two-shift
+`rest`), with no re-anchor branch. On v7b (v8b) against 9e1e98dc, 3 rounds with one disturbed by
+outside load: GitHub +1.6% / +1.4%, CITM typed +1.7%, GSoC raw -1.2%, about +1.5% raw over v7b. On
+the original calling convention with K2 (v10), 5 rounds: raw GitHub +2.7%, Twitter +0.7%; typed
+CITM +0.7%, Twitter -0.4%, Twitter full -0.5%, LLM -1.9%, GSoC -0.4%. Its own share: raw +1.4% ..
++2%, typed about -1%.
+
+### Rejected: the comma taken with an in-block string value
+
+*Recorded 2026-11-10.*
+
+On top of the quote decision (v12 over v11): typed +0.4% .. +1.3%, raw +0.6% .. +0.9%. In the
+original loop shape with K2 (v13), 5 rounds: typed Twitter +1.2%, CITM +0.9%, raw CITM -2.9% (-2.2%
+against K2 alone). The value's comma was rejected in the walk before
+("Rejected: the value's comma, taken with the value in the block walk").
+
+### Rejected: the stack that wins the raw rows
+
+*Recorded 2026-11-10.*
+
+v12 is K2, the mask advance, the quote decision and the comma together. Gate against 9e1e98dc, 3
+rounds, load 3–6:
+
+| Row | Raw | Typed |
+| --- | ---: | ---: |
+| GitHub events | +4.9% [+4.3 .. +5.1] | -0.2% |
+| Twitter spaced | +4.0% | +0.4% |
+| Twitter, bulk / 16KB | +3.1% / +3.1% | -0.7% / -0.3% |
+| GSoC 2018, bulk / 16KB | +2.0% / +2.0% | 0.0% / -0.1% |
+| Pretty printed users, bulk | +2.3% | |
+| Separators literals indented | +2.7% | -1.4% [-3.2 .. -1.2] |
+| CITM catalog, bulk / 16KB | +0.3% / +0.2% | -0.6% / -0.9% |
+| Twitter full, bulk / 16KB | | -0.2% / +0.1% |
+| Twitter escaped - byte by byte | +8.6% | +0.1% |
+
+Typed rows decide; the walk's `PartialSink` copy is a different register allocation, and typed
+Twitter spends 20% of its time in `consumeSkipBlocks`.
+
+### Measured: byte-fed rows that moved without their code
+
+*Recorded 2026-11-10.*
+
+Raw Twitter escaped byte by byte read +8.6% to +9.1% in the walk gates (K2, v12), the skip
+classifier's gate, the key and copy gate, and the `\u` loop measured on top of the kernel; Pretty
+printed byte by byte +3.3% to +3.7%, typed LLM byte by byte -3.4%. Those rows never run the block
+walk, and `parse`, `consumeStringRun` and `consumeStructuralRun` were opcode-identical. K2b alone puts
+`parse`, `consumeStringRun`, `consumeStructuralRun` and `coalescedEscapedStringTail` at the same
+addresses as the K2 pair and reads +3.2% / +0.2% where the pair reads +8.7% / -3.3%, so 128-byte
+alignment of those functions does not explain it. The mechanism was not identified. Against the
+session's start the row reads +0.3%.
+
+## Measured: the whole session against where it started
+
+*Recorded 2026-11-10.*
+
+a266c77f against 5a61414f: every change logged from "Landed: the sink's array appends prove the tail
+unique once per parse call" to here, and the chunk-cut number change (312c63d1). Aligned builds, 3
+interleaved rounds, quiet machine (load 4–6), median p0 [per-round range]. The Mesh 16KB rows include
+the chunk-cut change.
+
+| Row | Change |
+| --- | ---: |
+| Real CITM catalog - 16KB chunks | +0.9% [+0.8 .. +0.9] |
+| Real CITM catalog - 16KB chunks discarding | +28.2% [+28.0 .. +28.3] |
+| Real CITM catalog - bulk | +0.9% [+0.8 .. +0.9] |
+| Real CITM catalog - bulk discarding | +28.1% [+28.0 .. +29.4] |
+| Real Canada - 16KB chunks | +13.5% [+13.5 .. +13.6] |
+| Real Canada - 16KB chunks discarding | +20.0% [+19.9 .. +20.1] |
+| Real Canada - bulk | +13.4% [+13.3 .. +13.4] |
+| Real Canada - bulk discarding | +20.0% [+20.0 .. +20.1] |
+| Real GSoC 2018 - 16KB chunks | +1.1% [+1.0 .. +1.3] |
+| Real GSoC 2018 - 16KB chunks discarding | +10.1% [+9.9 .. +10.5] |
+| Real GSoC 2018 - bulk | +0.1% [-0.1 .. +0.2] |
+| Real GSoC 2018 - bulk discarding | +9.8% [+9.6 .. +9.9] |
+| Real GitHub events - bulk | +1.4% [+1.2 .. +1.6] |
+| Real GitHub events - bulk discarding | +20.2% [+17.7 .. +21.1] |
+| Real LLM message - 16KB chunks | +44.2% [+43.7 .. +44.9] |
+| Real LLM message - 16KB chunks discarding | +26.7% [+26.6 .. +27.0] |
+| Real LLM message - bulk | +43.7% [+43.5 .. +43.7] |
+| Real LLM message - bulk discarding | +27.5% [+27.4 .. +27.8] |
+| Real LLM message - byte by byte | +0.1% [+0.1 .. +0.1] |
+| Real LLM message - byte by byte discarding | -0.1% [-0.1 .. -0.0] |
+| Real Mesh - 16KB chunks | +17.5% [+17.4 .. +17.7] |
+| Real Mesh - 16KB chunks discarding | +42.9% [+42.9 .. +43.0] |
+| Real Mesh - bulk | +0.8% [+0.8 .. +0.9] |
+| Real Mesh - bulk discarding | +23.2% [+23.2 .. +23.3] |
+| Real Qwen 3 structured response - bulk | +0.0% [+0.0 .. +3.2] |
+| Real Qwen 3 structured response - bulk discarding | +17.4% [+17.0 .. +17.6] |
+| Real Qwen 3 workspace edit tool call - bulk | +3.9% [+3.5 .. +4.3] |
+| Real Qwen 3 workspace edit tool call - bulk discarding | +5.1% [+4.5 .. +5.2] |
+| Real Twitter - 16KB chunks | +3.2% [+3.1 .. +3.4] |
+| Real Twitter - 16KB chunks discarding | +9.9% [+9.8 .. +9.9] |
+| Real Twitter - bulk | +3.1% [+3.0 .. +3.2] |
+| Real Twitter - bulk discarding | +9.4% [+9.4 .. +9.7] |
+| Real Twitter escaped - bulk | +42.4% [+40.7 .. +43.3] |
+| Real Twitter escaped - bulk discarding | +26.3% [+26.3 .. +26.6] |
+| Real Twitter escaped - byte by byte | +0.3% [+0.3 .. +0.4] |
+| Real Twitter escaped - byte by byte discarding | +0.1% [+0.1 .. +0.2] |
+| Real Twitter full - 16KB chunks discarding | +20.7% [+20.7 .. +20.7] |
+| Real Twitter full - bulk discarding | +20.6% [+20.5 .. +20.7] |
+| Real Twitter spaced - bulk | +5.1% [+4.8 .. +5.2] |
+| Real Twitter spaced - bulk discarding | +10.2% [+10.1 .. +10.4] |
+
+Best of the three rounds, bulk p0, MB/s, start → end:
+
+| Payload | Raw | Typed |
+| --- | ---: | ---: |
+| CITM catalog | 2780 → 2805 | 911 → 1167 |
+| Canada | 1160 → 1315 | 732 → 879 |
+| GSoC 2018 | 4986 → 4983 | 1488 → 1635 |
+| GitHub events | 2709 → 2747 | 1563 → 1892 |
+| LLM message | 3779 → 5425 | 2713 → 3462 |
+| Mesh | 988 → 996 | 675 → 831 |
+| Qwen 3 structured response | 2253 → 2253 | 478 → 562 |
+| Qwen 3 workspace edit tool call | 2125 → 2209 | 712 → 748 |
+| Twitter | 2319 → 2389 | 2645 → 2897 |
+| Twitter escaped | 1347 → 1908 | 1872 → 2365 |
+| Twitter full | | 841 → 1013 |
+| Twitter spaced | 1946 → 2042 | 2222 → 2449 |

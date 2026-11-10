@@ -1,0 +1,102 @@
+; StreamParsingCore.PartialSink.number(_: Swift.Span<Swift.UInt8>, info: StreamParsingCore.NumberInfo) -> ()
+; _$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF
+; 96 instructions
+; 1 further specialization(s) of this symbol in the binary
+; llvm-objdump -d, release benchmark binary
+
+1002ce630:     	ubfx	x8, x3, #32, #16
+1002ce634:     	ldr	w9, [x20, #0x1c]
+1002ce638:     	and	w10, w9, #0xff
+1002ce63c:     	cmp	w10, #0xe
+1002ce640:     	b.eq	0x1002ce6a0 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0x70>
+1002ce644:     	cmp	w10, #0xd
+1002ce648:     	b.ne	0x1002ce6c0 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0x90>
+1002ce64c:     	tbnz	w8, #0x3, 0x1002ce7a8 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0x178>
+1002ce650:     	mov	x9, #0x20000000000000   ; =9007199254740992
+1002ce654:     	cmp	x2, x9
+1002ce658:     	b.hi	0x1002ce7a8 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0x178>
+1002ce65c:     	lsl	x9, x3, #48
+1002ce660:     	ucvtf	d0, x2
+1002ce664:     	fneg	d1, d0
+1002ce668:     	tst	w8, #0x1
+1002ce66c:     	fcsel	d0, d0, d1, eq
+1002ce670:     	cbz	x9, 0x1002ce754 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0x124>
+1002ce674:     	sxth	x8, w3
+1002ce678:     	cmp	x8, #0x0
+1002ce67c:     	cneg	x9, x8, mi
+1002ce680:     	cmp	x9, #0x16
+1002ce684:     	b.hi	0x1002ce7a8 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0x178>
+1002ce688:     	adrp	x10, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002ce68c:     	add	x10, x10, #0x740
+1002ce690:     	ldr	d1, [x10, x9, lsl #3]
+1002ce694:     	tbnz	x8, #0x3f, 0x1002ce750 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0x120>
+1002ce698:     	fmul	d0, d0, d1
+1002ce69c:     	b	0x1002ce754 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0x124>
+1002ce6a0:     	tst	w8, #0xe
+1002ce6a4:     	b.ne	0x1002ce744 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0x114>
+1002ce6a8:     	and	x9, x3, #0xffff
+1002ce6ac:     	cbnz	x9, 0x1002ce744 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0x114>
+1002ce6b0:     	tbnz	w8, #0x0, 0x1002ce6e0 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0xb0>
+1002ce6b4:     	mov	x8, x2
+1002ce6b8:     	tbz	x2, #0x3f, 0x1002ce6f0 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0xc0>
+1002ce6bc:     	b	0x1002ce744 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0x114>
+1002ce6c0:     	sub	w8, w10, #0x18
+1002ce6c4:     	and	x3, x3, #0xffffffffffff
+1002ce6c8:     	cmp	w8, #0x2
+1002ce6cc:     	b.hi	0x1002ce6d4 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0xa4>
+1002ce6d0:     	b	0x1002ceda0 <_$s17StreamParsingCore11PartialSinkV27storeSIMDDoubleLaneByKernel33_76F4C6BF7B2CF72205BA3BB5BBD4A19BLL_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF>
+1002ce6d4:     	tst	w9, #0xff00
+1002ce6d8:     	b.eq	0x1002ce74c <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0x11c>
+1002ce6dc:     	b	0x1002cef38 <_$s17StreamParsingCore11PartialSinkV16applyKnownNumber33_76F4C6BF7B2CF72205BA3BB5BBD4A19BLL_4infoys4SpanVys5UInt8VG_AA0H4InfoVtF>
+1002ce6e0:     	mov	x8, #-0x7fffffffffffffff ; =-9223372036854775807
+1002ce6e4:     	cmp	x2, x8
+1002ce6e8:     	b.hs	0x1002ce744 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0x114>
+1002ce6ec:     	neg	x8, x2
+1002ce6f0:     	ldp	x10, x9, [x20, #0x30]
+1002ce6f4:     	cmp	x9, x10
+1002ce6f8:     	b.eq	0x1002ce744 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0x114>
+1002ce6fc:     	ldur	x9, [x9, #-0x18]
+1002ce700:     	ldrb	w10, [x9, #0x18]
+1002ce704:     	cmp	w10, #0x1
+1002ce708:     	b.ne	0x1002ce744 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0x114>
+1002ce70c:     	ldr	x10, [x20, #0x28]
+1002ce710:     	ldr	x11, [x9, #0x8]
+1002ce714:     	cmp	x11, x10
+1002ce718:     	b.ne	0x1002ce744 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0x114>
+1002ce71c:     	ldr	x11, [x9, #0x20]
+1002ce720:     	ldr	x12, [x10, #0x18]
+1002ce724:     	cmp	x11, x12
+1002ce728:     	b.ge	0x1002ce744 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0x114>
+1002ce72c:     	add	x12, x10, x11, lsl #3
+1002ce730:     	str	x8, [x12, #0x20]
+1002ce734:     	add	x8, x11, #0x1
+1002ce738:     	str	x8, [x9, #0x20]
+1002ce73c:     	str	x8, [x10, #0x10]
+1002ce740:     	ret
+1002ce744:     	and	x3, x3, #0xffffffffffff
+1002ce748:     	b	0x1002ceb74 <_$s17StreamParsingCore11PartialSinkV20appendHomogeneousInt33_76F4C6BF7B2CF72205BA3BB5BBD4A19BLL_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF>
+1002ce74c:     	b	0x1002cf164 <_$s17StreamParsingCore11PartialSinkV12numberRouted33_76F4C6BF7B2CF72205BA3BB5BBD4A19BLL_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF>
+1002ce750:     	fdiv	d0, d0, d1
+1002ce754:     	ldp	x9, x8, [x20, #0x30]
+1002ce758:     	cmp	x8, x9
+1002ce75c:     	b.eq	0x1002ce7a8 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0x178>
+1002ce760:     	ldur	x8, [x8, #-0x18]
+1002ce764:     	ldrb	w9, [x8, #0x18]
+1002ce768:     	cmp	w9, #0x1
+1002ce76c:     	b.ne	0x1002ce7a8 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0x178>
+1002ce770:     	ldr	x9, [x20, #0x28]
+1002ce774:     	ldr	x10, [x8, #0x8]
+1002ce778:     	cmp	x10, x9
+1002ce77c:     	b.ne	0x1002ce7a8 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0x178>
+1002ce780:     	ldr	x10, [x8, #0x20]
+1002ce784:     	ldr	x11, [x9, #0x18]
+1002ce788:     	cmp	x10, x11
+1002ce78c:     	b.ge	0x1002ce7a8 <_$s17StreamParsingCore11PartialSinkV6number_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF+0x178>
+1002ce790:     	add	x11, x9, x10, lsl #3
+1002ce794:     	str	d0, [x11, #0x20]
+1002ce798:     	add	x10, x10, #0x1
+1002ce79c:     	str	x10, [x8, #0x20]
+1002ce7a0:     	str	x10, [x9, #0x10]
+1002ce7a4:     	ret
+1002ce7a8:     	and	x3, x3, #0xffffffffffff
+1002ce7ac:     	b	0x1002ce7b0 <_$s17StreamParsingCore11PartialSinkV23appendHomogeneousDouble33_76F4C6BF7B2CF72205BA3BB5BBD4A19BLL_4infoys4SpanVys5UInt8VG_AA10NumberInfoVtF>

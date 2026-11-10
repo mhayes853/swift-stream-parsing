@@ -1294,8 +1294,9 @@ public struct JSONParser: ~Copyable {
 
   // Out of line: the hex decode and surrogate handling are dead weight in callers whose escapes
   // are all one character. Measured: spelled inline alongside the simple escapes it cost `Fast
-  // Escaped string` 18.5%. Two entries over one body, since a literal passed to an
-  // `@inline(never)` function is a runtime argument inside it.
+  // Escaped string` 18.5%. Two entries, one per `coalescing` literal, since a literal passed to an
+  // `@inline(never)` function is a runtime argument inside it: this one decodes one escape through
+  // `unicodeEscapeEnd`, and `coalescedUnicodeEscapeEnd` below runs its own loop over a run.
   @inlinable
   @inline(never)
   mutating func fusedUnicodeEscapeEnd<Sink: StreamParseSink & ~Copyable>(

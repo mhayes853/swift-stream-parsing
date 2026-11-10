@@ -3,30 +3,30 @@
 ; 27 instructions
 ; llvm-objdump -d, release benchmark binary
 
-1002f04cc:     	subs	x8, x2, x1
-1002f04d0:     	b.le	0x1002f0524 <_$s17StreamParsingCore19streamWhitespaceEnd4base4from2toSiSV_S2itF+0x58>
-1002f04d4:     	ldrb	w9, [x0, x1]
-1002f04d8:     	cmp	w9, #0x20
-1002f04dc:     	b.hi	0x1002f052c <_$s17StreamParsingCore19streamWhitespaceEnd4base4from2toSiSV_S2itF+0x60>
-1002f04e0:     	cmp	x8, #0xf
-1002f04e4:     	b.gt	0x1002f0534 <_$s17StreamParsingCore19streamWhitespaceEnd4base4from2toSiSV_S2itF+0x68>
-1002f04e8:     	mov	w8, #0x1                ; =1
-1002f04ec:     	mov	x9, #0x2600             ; =9728
-1002f04f0:     	movk	x9, #0x1, lsl #32
-1002f04f4:     	ldrb	w10, [x0, x1]
-1002f04f8:     	cmp	w10, #0x20
-1002f04fc:     	lsl	x10, x8, x10
-1002f0500:     	and	x10, x10, x9
-1002f0504:     	ccmp	x10, #0x0, #0x4, ls
-1002f0508:     	b.eq	0x1002f052c <_$s17StreamParsingCore19streamWhitespaceEnd4base4from2toSiSV_S2itF+0x60>
-1002f050c:     	add	x1, x1, #0x1
-1002f0510:     	cmp	x2, x1
-1002f0514:     	b.ne	0x1002f04f4 <_$s17StreamParsingCore19streamWhitespaceEnd4base4from2toSiSV_S2itF+0x28>
-1002f0518:     	mov	x1, x2
-1002f051c:     	mov	x0, x1
-1002f0520:     	ret
-1002f0524:     	cmp	x8, #0x10
-1002f0528:     	b.ge	0x1002f0534 <_$s17StreamParsingCore19streamWhitespaceEnd4base4from2toSiSV_S2itF+0x68>
-1002f052c:     	mov	x0, x1
-1002f0530:     	ret
-1002f0534:     	b	0x1002f163c <_$s17StreamParsingCore22streamWhitespaceRunEnd4base4from2toSiSV_S2itF>
+1002f41e4:     	subs	x8, x2, x1
+1002f41e8:     	b.le	0x1002f423c <_$s17StreamParsingCore19streamWhitespaceEnd4base4from2toSiSV_S2itF+0x58>
+1002f41ec:     	ldrb	w9, [x0, x1]
+1002f41f0:     	cmp	w9, #0x20
+1002f41f4:     	b.hi	0x1002f4244 <_$s17StreamParsingCore19streamWhitespaceEnd4base4from2toSiSV_S2itF+0x60>
+1002f41f8:     	cmp	x8, #0xf
+1002f41fc:     	b.gt	0x1002f424c <_$s17StreamParsingCore19streamWhitespaceEnd4base4from2toSiSV_S2itF+0x68>
+1002f4200:     	mov	w8, #0x1                ; =1
+1002f4204:     	mov	x9, #0x2600             ; =9728
+1002f4208:     	movk	x9, #0x1, lsl #32
+1002f420c:     	ldrb	w10, [x0, x1]
+1002f4210:     	cmp	w10, #0x20
+1002f4214:     	lsl	x10, x8, x10
+1002f4218:     	and	x10, x10, x9
+1002f421c:     	ccmp	x10, #0x0, #0x4, ls
+1002f4220:     	b.eq	0x1002f4244 <_$s17StreamParsingCore19streamWhitespaceEnd4base4from2toSiSV_S2itF+0x60>
+1002f4224:     	add	x1, x1, #0x1
+1002f4228:     	cmp	x2, x1
+1002f422c:     	b.ne	0x1002f420c <_$s17StreamParsingCore19streamWhitespaceEnd4base4from2toSiSV_S2itF+0x28>
+1002f4230:     	mov	x1, x2
+1002f4234:     	mov	x0, x1
+1002f4238:     	ret
+1002f423c:     	cmp	x8, #0x10
+1002f4240:     	b.ge	0x1002f424c <_$s17StreamParsingCore19streamWhitespaceEnd4base4from2toSiSV_S2itF+0x68>
+1002f4244:     	mov	x0, x1
+1002f4248:     	ret
+1002f424c:     	b	0x1002f5324 <_$s17StreamParsingCore22streamWhitespaceRunEnd4base4from2toSiSV_S2itF>

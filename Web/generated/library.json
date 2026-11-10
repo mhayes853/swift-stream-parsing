@@ -87,6 +87,21 @@
       "startLine" : 85,
       "symbol" : "assertStreamParsingMacro"
     },
+    "BlockClassifierTests.swift:Every byte value at every position classifies as documented" : {
+      "attributes" : [
+        "@Test"
+      ],
+      "code" : "@Test\n    func `Every byte value at every position classifies as documented`() {\n      for (backgroundIndex, background) in Self.backgrounds.enumerated() {\n        for byte in UInt8.min...UInt8.max {\n          for position in 0..<64 {\n            var block = background\n            block[position] = byte\n            for carries in 0..<4 {\n              Self.expectClassifiers(\n                block, inStringCarry: carries & 1 != 0, endsOddCarry: carries & 2 != 0,\n                \"background \\(backgroundIndex), byte 0x\\(String(byte, radix: 16)) at \\(position), carries \\(carries)\"\n              )\n            }\n          }\n        }\n      }\n    }",
+      "endLine" : 152,
+      "file" : "Tests/StreamParsingTests/Scanning/BlockClassifierTests.swift",
+      "kind" : "func",
+      "members" : [
+
+      ],
+      "qualifiedName" : "`Block classifier tests`.`Every byte value at every position classifies as documented`",
+      "startLine" : 136,
+      "symbol" : "`Every byte value at every position classifies as documented`"
+    },
     "BufferCapacityTests.swift:Exhaustion does not depend on chunking" : {
       "attributes" : [
         "@Test(arguments: [1, 3, 7, 64])"
@@ -162,13 +177,28 @@
       "startLine" : 43,
       "symbol" : "`Chunked container state tests`"
     },
+    "CoalescedStringChunkTests.swift:A unicode escape run cut at every offset agrees with the byte fed parse" : {
+      "attributes" : [
+        "@Test(arguments: unicodeRuns)"
+      ],
+      "code" : "@Test(arguments: unicodeRuns)\n  func `A unicode escape run cut at every offset agrees with the byte fed parse`(\n    label: String, json: String\n  ) {\n    let bytes = Array(json.utf8)\n    #expect(!bytes.contains(UInt8(ascii: \"~\")))\n    let byteFed = Self.record(bytes, chunk: 1)\n    for bufferCapacity in [64, 4096] {\n      for cut in 0...bytes.count {\n        let chunked = Self.recordSplit(bytes, at: cut, bufferCapacity: bufferCapacity)\n        let coalesced = Outcome(events: Self.folding(chunked.events), error: chunked.error)\n        let fragmented = Outcome(\n          events: Self.folding(byteFed.events) { $0 < cut ? 0 : 1 }, error: byteFed.error\n        )\n        if coalesced != fragmented {\n          Issue.record(\"\\(label): cut \\(cut), buffer \\(bufferCapacity) diverges\")\n          return\n        }\n      }\n    }\n  }",
+      "endLine" : 469,
+      "file" : "Tests/StreamParsingTests/JSON/CoalescedStringChunkTests.swift",
+      "kind" : "func",
+      "members" : [
+
+      ],
+      "qualifiedName" : "`Coalesced string chunk tests`.`A unicode escape run cut at every offset agrees with the byte fed parse`",
+      "startLine" : 449,
+      "symbol" : "`A unicode escape run cut at every offset agrees with the byte fed parse`"
+    },
     "CoalescedStringChunkTests.swift:Coalesced string chunk tests" : {
       "attributes" : [
         "@Suite"
       ],
       "code" : "@Suite\nstruct `Coalesced string chunk tests` {\n  …\n}",
       "comment" : "Every sink gets a string value's content coalesced from its first escape on: the decoded\nescapes and the literal runs between them are copied into the parser's buffer and delivered one\nchunk per buffer-full (see `JSONParser.coalescedEscapedStringTail`). That is allowed to change\n*boundaries only*: the same events in the same order carrying the same bytes, with the string\ncontent of a value regrouped into fewer chunks. Nothing else about a parse may move -- not the\nkey/number/structure stream, not the errors, not where a `stringBegin` rejection surfaces, and\nnot which parse call delivers which content: whatever was coalesced is flushed before a parse\ncall returns.\n\nThe oracle is the same document fed one byte per call. Byte fed input never enters the\ncoalescing tail -- every backslash is the chunk's last byte, so each escape goes through the\nper-byte states and arrives as its own chunk -- which makes it an independent, fragment by\nfragment delivery of the same content. Each event is tagged with the parse call that delivered\nit; the byte fed tag (a byte offset) is mapped onto the chunked run's call index, and adjacent\n`stringChunk`s are folded only within one call on both sides.",
-      "endLine" : 394,
+      "endLine" : 499,
       "file" : "Tests/StreamParsingTests/JSON/CoalescedStringChunkTests.swift",
       "kind" : "struct",
       "members" : [
@@ -193,6 +223,11 @@
         "`A run longer than the buffer passes through it whole`",
         "`Staged runs agree with the byte fed parse at every buffer seam`",
         "`A staged run that fails delivers nothing the byte fed parse did not`",
+        "recordSplit",
+        "escaped",
+        "unicodeRuns",
+        "`A unicode escape run cut at every offset agrees with the byte fed parse`",
+        "`A unicode escape run is one chunk`",
         "`A chunk rejection reports at the flush`"
       ],
       "qualifiedName" : "`Coalesced string chunk tests`",
@@ -379,7 +414,7 @@
       ],
       "code" : "struct DifferentialSink<T: StreamDifferentialFloat>: StreamParseSink {\n  …\n}",
       "comment" : "Converts every number token the parser reports and records the ones that disagree with\n`T(String)`. Holds the text too, so a failure names the token rather than an index.",
-      "endLine" : 99,
+      "endLine" : 120,
       "file" : "Tests/StreamParsingTests/Scanning/DoubleConversionDifferentialTests.swift",
       "kind" : "struct",
       "members" : [
@@ -412,17 +447,18 @@
         "@Suite"
       ],
       "code" : "@Suite\nstruct `Double conversion differential tests` {\n  …\n}",
-      "endLine" : 199,
+      "endLine" : 257,
       "file" : "Tests/StreamParsingTests/Scanning/DoubleConversionDifferentialTests.swift",
       "kind" : "struct",
       "members" : [
         "`Every number in a float corpus converts exactly as Double(String) does`",
         "`A chunked float corpus converts identically`",
         "`Edge case tokens convert exactly as Double(String) does`",
+        "`Random decimals convert exactly as Double(String) does`",
         "`The Double binary format constants describe Double`"
       ],
       "qualifiedName" : "`Double conversion differential tests`",
-      "startLine" : 132,
+      "startLine" : 153,
       "symbol" : "`Double conversion differential tests`"
     },
     "DoubleConversionDifferentialTests.swift:Edge case tokens convert exactly as Double(String) does" : {
@@ -430,14 +466,14 @@
         "@Test"
       ],
       "code" : "@Test\n  func `Edge case tokens convert exactly as Double(String) does`() throws {\n    let tokens = [\n      // Canada's own shape, and the digits past what a Double significand can hold.\n      \"-65.613616999999977\", \"43.420273000000009\", \"1.7976931348623157\",\n      \"123456789012345678\", \"1234567890123456789\", \"12345678901234567890\",\n      \"9007199254740993\", \"9007199254740992\", \"9007199254740991\",\n      \"18446744073709551615\", \"18446744073709551616\",\n      // Leading zeros, in the integer part and in the fraction.\n      \"0\", \"-0\", \"0.0\", \"-0.0\", \"0.000000000000000123\", \"0.0000000000000000000001\",\n      // The exact path's edges: 10^22 is the last exactly representable power of ten.\n      \"1e22\", \"1e23\", \"1e-22\", \"1e-23\", \"-1e22\", \"-1e-22\",\n      // Subnormals and the ends of the range.\n      \"5e-324\", \"4.9e-324\", \"2.5e-324\", \"2.2250738585072014e-308\",\n      \"2.2250738585072011e-308\", \"1.7976931348623157e308\",\n      \"1e-308\", \"1e-310\", \"1e-320\", \"1e-323\", \"1e308\", \"1e-400\", \"1e400\", \"-1e400\",\n      // Halfway cases a 55-bit approximation cannot separate on its own.\n      \"7.8459735791271921e65\", \"3.5844466002796428e+298\", \"9.881312916824931e-324\",\n      // Exponent spellings.\n      \"1E2\", \"1e+2\", \"1e-2\", \"-1e-2\", \"1.0e0\", \"-1.0E+0\",\n      // Long digit runs, which cross the eight-digit block boundary in the accumulator.\n      \"1234567.8\", \"12345678.9\", \"123456789.01234567\", \"0.12345678901234567890123\",\n      \"-0.00000000000000000000000000001\", \"1000000000000000000000\",\n    ]\n    for token in tokens {\n      let sink = try differentialCheck(Array(token.utf8), chunk: .max, as: Double.self)\n      #expect(sink.count == 1, \"\\(token) produced \\(sink.count) tokens\")\n      #expect(sink.mismatches.isEmpty, \"\\(sink.mismatches)\")\n    }\n  }",
-      "endLine" : 187,
+      "endLine" : 208,
       "file" : "Tests/StreamParsingTests/Scanning/DoubleConversionDifferentialTests.swift",
       "kind" : "func",
       "members" : [
 
       ],
       "qualifiedName" : "`Double conversion differential tests`.`Edge case tokens convert exactly as Double(String) does`",
-      "startLine" : 158,
+      "startLine" : 179,
       "symbol" : "`Edge case tokens convert exactly as Double(String) does`"
     },
     "DoubleConversionDifferentialTests.swift:Every number in a float corpus converts exactly as Double(String) does" : {
@@ -445,15 +481,31 @@
         "@Test(arguments: [\"canada.json\", \"mesh.json\"])"
       ],
       "code" : "@Test(arguments: [\"canada.json\", \"mesh.json\"])\n  func `Every number in a float corpus converts exactly as Double(String) does`(\n    name: String\n  ) throws {\n    let bytes = try #require(streamBenchmarkCorpus(name))\n    let sink = try differentialCheck(bytes, chunk: .max, as: Double.self)\n    #expect(sink.mismatches.isEmpty, \"\\(name): \\(sink.mismatches)\")\n    #expect(sink.count > 1000)\n    // The string fallback is correct but slow, so a change that started routing the corpus\n    // through it would pass the equality check above while undoing the point of the kernels.\n    #expect(sink.nilCount == 0)\n  }",
-      "endLine" : 145,
+      "endLine" : 166,
       "file" : "Tests/StreamParsingTests/Scanning/DoubleConversionDifferentialTests.swift",
       "kind" : "func",
       "members" : [
 
       ],
       "qualifiedName" : "`Double conversion differential tests`.`Every number in a float corpus converts exactly as Double(String) does`",
-      "startLine" : 134,
+      "startLine" : 155,
       "symbol" : "`Every number in a float corpus converts exactly as Double(String) does`"
+    },
+    "DoubleConversionDifferentialTests.swift:Random decimals convert exactly as Double(String) does" : {
+      "attributes" : [
+        "@Test"
+      ],
+      "code" : "@Test\n  func `Random decimals convert exactly as Double(String) does`() throws {\n    var generator = `Escaped tail block tests`.Generator(state: 0x5EED_F10A7)\n    var text = \"[\"\n    for index in 0..<20_000 {\n      if index > 0 { text += \",\" }\n      if generator.next() & 1 == 0 { text += \"-\" }\n      let digitCount = Int(generator.next() % 22) + 1\n      var digits = \"\"\n      for position in 0..<digitCount {\n        let digit = generator.next() % 10\n        digits += String(position == 0 && digitCount > 1 ? max(digit, 1) : digit)\n      }\n      switch generator.next() % 4 {\n      case 0:\n        text += digits\n      case 1:\n        let split = Int(generator.next() % UInt64(digitCount))\n        text += split == 0 ? \"0.\" + digits : String(digits.prefix(split)) + \".\" + digits.dropFirst(split)\n      case 2:\n        let exponent = Int(generator.next() % 60) - 30\n        text += digits + \"e\\(exponent)\"\n      default:\n        let exponent = Int(generator.next() % 700) - 350\n        text += digits.prefix(1) + (digitCount > 1 ? \".\" + digits.dropFirst() : \"\") + \"E\\(exponent)\"\n      }\n    }\n    text += \"]\"\n    let sink = try differentialCheck(Array(text.utf8), chunk: .max, as: Double.self)\n    #expect(sink.count == 20_000)\n    #expect(sink.mismatches.isEmpty, \"\\(sink.mismatches)\")\n  }",
+      "comment" : "Random decimals over every tier's boundary: 1-22 significant digits (so the exact path's 2^53\nedge, Eisel-Lemire and the overflowed accumulator all occur), fraction and exponent spellings,\nand exponents across the exact window, the table and beyond the range. Seeded, so a failure\nreproduces.",
+      "endLine" : 245,
+      "file" : "Tests/StreamParsingTests/Scanning/DoubleConversionDifferentialTests.swift",
+      "kind" : "func",
+      "members" : [
+
+      ],
+      "qualifiedName" : "`Double conversion differential tests`.`Random decimals convert exactly as Double(String) does`",
+      "startLine" : 214,
+      "symbol" : "`Random decimals convert exactly as Double(String) does`"
     },
     "DoubleConversionDifferentialTests.swift:differentialCheck" : {
       "attributes" : [
@@ -461,14 +513,14 @@
       ],
       "code" : "func differentialCheck<T: StreamDifferentialFloat>(\n  _ bytes: [UInt8],\n  chunk: Int,\n  as type: T.Type,\n  tracksKernel: Bool = false,\n  oracle: @escaping @Sendable (String) -> T? = { T($0) }\n) throws -> DifferentialSink<T> {\n  var sink = DifferentialSink<T>(tracksKernel: tracksKernel, oracle: oracle)\n  try feed(bytes, chunk: chunk, into: &sink)\n  return sink\n}",
       "comment" : "Runs a document through the parser into a fresh differential sink.",
-      "endLine" : 128,
+      "endLine" : 149,
       "file" : "Tests/StreamParsingTests/Scanning/DoubleConversionDifferentialTests.swift",
       "kind" : "func",
       "members" : [
 
       ],
       "qualifiedName" : "differentialCheck",
-      "startLine" : 118,
+      "startLine" : 139,
       "symbol" : "differentialCheck"
     },
     "EiselLemireTests.swift:Eisel-Lemire tests" : {
@@ -610,6 +662,37 @@
       "startLine" : 88,
       "symbol" : "`Reports invalid UTF-8 at the sequence lead at every split`"
     },
+    "EscapedTailBlockTests.swift:Long runs of three-byte unicode escapes agree at every buffer and chunk size" : {
+      "attributes" : [
+        "@Test"
+      ],
+      "code" : "@Test\n  func `Long runs of three-byte unicode escapes agree at every buffer and chunk size`() {\n    var rng = Generator(state: 0x5EED_0007)\n    for index in 0..<16 {\n      // The first few short enough to be cut at every offset.\n      let count = index < 4 ? 30 + rng.below(40) : 200 + rng.below(1200)\n      let content =\n        Array(#\"\\n\"#.utf8) + [UInt8](repeating: UInt8(ascii: \"r\"), count: index * 5)\n        + Self.run(count, &rng) + Array(#\"\\n\"#.utf8) + Self.run(rng.below(50), &rng)\n        + [UInt8](repeating: UInt8(ascii: \"s\"), count: 150)\n      Self.expectAgreement(\n        Self.document(content), \"long run \\(index)\", everySplit: index < 4,\n        bufferCapacities: index < 4 ? [4096, 160] : [4096, 16, 139, 140, 141, 160, 200, 300]\n      )\n    }\n  }",
+      "comment" : "A run longer than the buffer and than any chunk: it ends where the chunk's slack or the\nbuffer's room does, mid-run, and the next call picks it up.",
+      "endLine" : 483,
+      "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
+      "kind" : "func",
+      "members" : [
+
+      ],
+      "qualifiedName" : "`Escaped tail block tests`.`Long runs of three-byte unicode escapes agree at every buffer and chunk size`",
+      "startLine" : 468,
+      "symbol" : "`Long runs of three-byte unicode escapes agree at every buffer and chunk size`"
+    },
+    "EscapedTailBlockTests.swift:The kernel's UTF-8 tables are the validator's" : {
+      "attributes" : [
+        "@Test"
+      ],
+      "code" : "@Test\n    func `The kernel's UTF-8 tables are the validator's`() {\n      let tables = [streamUTF8PreviousHighTable, streamUTF8PreviousLowTable, streamUTF8CurrentHighTable]\n      for (index, table) in tables.enumerated() {\n        for nibble in 0..<16 {\n          #expect(\n            stream_parsing_unescape_utf8_table(Int32(index), Int32(nibble)) == table[nibble],\n            \"table \\(index), nibble \\(nibble)\"\n          )\n        }\n      }\n    }",
+      "endLine" : 463,
+      "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
+      "kind" : "func",
+      "members" : [
+
+      ],
+      "qualifiedName" : "`Escaped tail block tests`.`The kernel's UTF-8 tables are the validator's`",
+      "startLine" : 452,
+      "symbol" : "`The kernel's UTF-8 tables are the validator's`"
+    },
     "FloatConversionDifferentialTests.swift:Float reaches the Eisel-Lemire kernel rather than the string fallback" : {
       "attributes" : [
         "@Test"
@@ -625,6 +708,21 @@
       "qualifiedName" : "`Float conversion differential tests`.`Float reaches the Eisel-Lemire kernel rather than the string fallback`",
       "startLine" : 61,
       "symbol" : "`Float reaches the Eisel-Lemire kernel rather than the string fallback`"
+    },
+    "HomogeneousNumberRouteTests.swift:Elements and lanes hold what the standard library parses" : {
+      "attributes" : [
+        "@Test(arguments: [Int.max, 1, 3, 7, 64])"
+      ],
+      "code" : "@Test(arguments: [Int.max, 1, 3, 7, 64])\n  func `Elements and lanes hold what the standard library parses`(chunk: Int) throws {\n    // Enough elements to seal several 256-slot `Double` blocks and grow the first tail.\n    var doubles = [String]()\n    for index in 0..<700 { doubles.append(Self.doubleTokens[index % Self.doubleTokens.count]) }\n    var ints = [String]()\n    for index in 0..<600 { ints.append(Self.intTokens[index % Self.intTokens.count]) }\n    let lanes = Self.doubleTokens\n    let pairs = (0..<300).map { \"[\\(lanes[$0 % lanes.count]),\\(lanes[($0 + 5) % lanes.count])]\" }\n    let triples = (0..<40).map {\n      \"[\\(lanes[$0 % lanes.count]),\\(lanes[($0 + 1) % lanes.count]),\\(lanes[($0 + 2) % lanes.count])]\"\n    }\n    let quads = (0..<40).map { index in\n      \"[\" + (0..<4).map { lanes[(index + $0 * 3) % lanes.count] }.joined(separator: \",\") + \"]\"\n    }\n    let json = \"\"\"\n      {\"doubles\":[\\(doubles.joined(separator: \",\"))],\"ints\":[\\(ints.joined(separator: \", \"))],\n      \"pairs\":[\\(pairs.joined(separator: \",\"))],\"triples\":[\\(triples.joined(separator: \",\"))],\n      \"quads\":[\\(quads.joined(separator: \",\"))]}\n      \"\"\"\n\n    var value = HomogeneousNumbers.Partial()\n    try parsePartial(json, into: &value, chunk: chunk)\n\n    let lane = { (index: Int) in Double(lanes[index % lanes.count])! }\n    expectNoDifference(value.doubles.map(Array.init), doubles.map { Double($0)! })\n    expectNoDifference(value.ints.map(Array.init), ints.map { Int($0)! })\n    expectNoDifference(\n      value.pairs.map(Array.init), (0..<300).map { SIMD2(lane($0), lane($0 + 5)) }\n    )\n    expectNoDifference(\n      value.triples.map(Array.init), (0..<40).map { SIMD3(lane($0), lane($0 + 1), lane($0 + 2)) }\n    )\n    expectNoDifference(\n      value.quads.map(Array.init),\n      (0..<40).map { SIMD4(lane($0), lane($0 + 3), lane($0 + 6), lane($0 + 9)) }\n    )\n    // Bit patterns, so `-0` is not passed off as `0`.\n    expectNoDifference(\n      value.doubles.map { Array($0).map(\\.bitPattern) },\n      doubles.map { Double($0)!.bitPattern }\n    )\n  }",
+      "endLine" : 79,
+      "file" : "Tests/StreamParsingTests/Sink/HomogeneousNumberRouteTests.swift",
+      "kind" : "func",
+      "members" : [
+
+      ],
+      "qualifiedName" : "`Homogeneous number route tests`.`Elements and lanes hold what the standard library parses`",
+      "startLine" : 37,
+      "symbol" : "`Elements and lanes hold what the standard library parses`"
     },
     "JSONChunkBoundaryTests.swift:Flat objects parse identically at every split" : {
       "attributes" : [
@@ -763,6 +861,22 @@
       "qualifiedName" : "BaseTestSuite.`Key decoding strategy tests`.`Built-In Strategy Converts Keys During Expansion`",
       "startLine" : 7,
       "symbol" : "`Built-In Strategy Converts Keys During Expansion`"
+    },
+    "LookupTableTests.swift:Hex Quad Agrees With A Per Character Decode On Every Byte In Every Lane" : {
+      "attributes" : [
+        "@Test"
+      ],
+      "code" : "@Test\n  func `Hex Quad Agrees With A Per Character Decode On Every Byte In Every Lane`() {\n    func nibble(_ byte: UInt8) -> UInt32? {\n      switch byte {\n      case UInt8(ascii: \"0\")...UInt8(ascii: \"9\"): UInt32(byte - UInt8(ascii: \"0\"))\n      case UInt8(ascii: \"a\")...UInt8(ascii: \"f\"): UInt32(byte - UInt8(ascii: \"a\") + 10)\n      case UInt8(ascii: \"A\")...UInt8(ascii: \"F\"): UInt32(byte - UInt8(ascii: \"A\") + 10)\n      default: nil\n      }\n    }\n    func oracle(_ quad: [UInt8]) -> UInt32? {\n      var value: UInt32 = 0\n      for byte in quad {\n        guard let digit = nibble(byte) else { return nil }\n        value = value << 4 | digit\n      }\n      return value\n    }\n    let fillers: [[UInt8]] = [Array(\"7aF0\".utf8), Array(\"Fe9d\".utf8), Array(\"0000\".utf8)]\n    var mismatches: [String] = []\n    for filler in fillers {\n      for lane in 0..<4 {\n        for byte in UInt8.min...UInt8.max {\n          var quad = filler\n          quad[lane] = byte\n          // Padded on both sides, so the decode reads at an unaligned offset of a larger buffer.\n          let padded: [UInt8] = [0x5C, 0x75] + quad + [0x5C, 0x75]\n          let actual = padded.withUnsafeBytes { streamHexQuad(base: $0.baseAddress!, from: 2) }\n          if actual != oracle(quad) {\n            mismatches.append(\"\\(quad): \\(String(describing: actual)) vs \\(String(describing: oracle(quad)))\")\n          }\n        }\n      }\n    }\n    expectNoDifference(mismatches, [])\n  }",
+      "comment" : "`streamHexQuad` validates and decodes four digits arithmetically in one register, where a\nbyte at or above 0x80 can carry into its neighbour. Every byte value is tried in every lane,\nwith the other three lanes a valid digit, a lower and an upper case letter, against a\nper-character oracle.",
+      "endLine" : 83,
+      "file" : "Tests/StreamParsingTests/Scanning/LookupTableTests.swift",
+      "kind" : "func",
+      "members" : [
+
+      ],
+      "qualifiedName" : "`Lookup table tests`.`Hex Quad Agrees With A Per Character Decode On Every Byte In Every Lane`",
+      "startLine" : 48,
+      "symbol" : "`Hex Quad Agrees With A Per Character Decode On Every Byte In Every Lane`"
     },
     "LookupTableTests.swift:Sequence Length Agrees With The Compare Ladder On Every Byte" : {
       "attributes" : [
@@ -1047,6 +1161,21 @@
       "qualifiedName" : "`Short integer kernel tests`.`The kernel agrees with the scalar walk on every length and prefix`",
       "startLine" : 47,
       "symbol" : "`The kernel agrees with the scalar walk on every length and prefix`"
+    },
+    "SinkTailUniquenessTests.swift:Snapshots of number arrays stay isolated at every cut" : {
+      "attributes" : [
+        "@Test"
+      ],
+      "code" : "@Test\n  func `Snapshots of number arrays stay isolated at every cut`() throws {\n    try self.expectSnapshotsIsolated(\"[1.5,2.5,3.5,4.5,5.5]\", as: StreamArray<Double>.self) {\n      $0.append(-1)\n    }\n    try self.expectSnapshotsIsolated(\"[1,2,3,4,5]\", as: StreamArray<Int>.self) { $0.append(-1) }\n  }",
+      "endLine" : 77,
+      "file" : "Tests/StreamParsingTests/Collections/SinkTailUniquenessTests.swift",
+      "kind" : "func",
+      "members" : [
+
+      ],
+      "qualifiedName" : "`Sink tail uniqueness tests`.`Snapshots of number arrays stay isolated at every cut`",
+      "startLine" : 71,
+      "symbol" : "`Snapshots of number arrays stay isolated at every cut`"
     },
     "SkipBlockScanTests.swift:Block and scalar skips agree at every alignment" : {
       "attributes" : [
@@ -1441,15 +1570,30 @@
       ],
       "code" : "@Test\n  func `A block the walk refuses where it was signalled cannot loop`() {\n    let tail = String(repeating: \" \", count: 80)\n    let bodies: [[UInt8]] = [\n      Array(\"[1,\\n  \".utf8) + [0x01] + Array(\" 2]\\(tail)\".utf8),\n      Array(\"[1,\".utf8) + [0x01, 0x01] + Array(\"2]\\(tail)\".utf8),\n      Array(\"[1,\\n\".utf8) + [0x00, 0x00] + Array(\"2]\\(tail)\".utf8),\n      Array(\"[1,\\n  \\\"caf\".utf8) + [0xC3, 0xA9] + Array(\"\\\",\\n  2]\\(tail)\".utf8),\n      Array(\"[1,\\n  \".utf8) + [0xC3, 0xA9] + Array(\",\\n  2]\\(tail)\".utf8),\n      Array(\"{\\n  \\\"a\\\\u0041\\\": 1,\\n  \\\"b\\\": 2\\n}\\(tail)\".utf8),\n      Array(\"[\\n  1,\\n  \\\\ ,\\n 2]\\(tail)\".utf8),\n    ]\n    for pad in [0, 1, 31, 62, 63, 64] {\n      let spaces = Array(repeating: UInt8(0x20), count: pad)\n      for (index, body) in bodies.enumerated() {\n        Self.expectAgreement(spaces + body, \"refused block \\(index) pad \\(pad)\", chunks: [64, 100, 4096, .max])\n      }\n    }\n  }",
       "comment" : "The ladder signals for the walk on indentation (two whitespace bytes, a block ahead) and the\nwalk hands back any block it will not judge. Bytes that look like whitespace to a `<= space`\ntest but are not -- and blocks the walk refuses right where it was entered -- must end in the\nladder's error arm (or carry on), never in the two handing the same byte back and forth.",
-      "endLine" : 323,
+      "endLine" : 433,
       "file" : "Tests/StreamParsingTests/JSON/StructuralBlockWalkTests.swift",
       "kind" : "func",
       "members" : [
 
       ],
       "qualifiedName" : "StructuralBlockWalkTests.`A block the walk refuses where it was signalled cannot loop`",
-      "startLine" : 305,
+      "startLine" : 415,
       "symbol" : "`A block the walk refuses where it was signalled cannot loop`"
+    },
+    "StructuralBlockWalkTests.swift:A string crossing a block edge agrees wherever its bytes fall" : {
+      "attributes" : [
+        "@Test(arguments: Self.edgeFeatures.indices)"
+      ],
+      "code" : "@Test(arguments: Self.edgeFeatures.indices)\n  func `A string crossing a block edge agrees wherever its bytes fall`(index: Int) {\n    let feature = Self.edgeFeatures[index]\n    for pad in [0, 1, 2, 3, 15, 16, 17, 31, 47, 48, 56, 60, 61, 62, 63, 64, 65] {\n      for length in [70, 150] {\n        for position in 0...length where length == 70 || position % 7 == 0 || position > 140 {\n          let body = Self.edgeBody(length: length, feature: feature.bytes, at: position)\n          for shape in 0..<3 {\n            Self.expectAgreement(\n              Self.edgeDocument(pad: pad, body: body, shape: shape),\n              \"\\(feature.name) at \\(position) of \\(length) pad \\(pad) shape \\(shape)\",\n              chunks: [64, 100, .max]\n            )\n          }\n        }\n      }\n    }\n  }",
+      "endLine" : 317,
+      "file" : "Tests/StreamParsingTests/JSON/StructuralBlockWalkTests.swift",
+      "kind" : "func",
+      "members" : [
+
+      ],
+      "qualifiedName" : "StructuralBlockWalkTests.`A string crossing a block edge agrees wherever its bytes fall`",
+      "startLine" : 300,
+      "symbol" : "`A string crossing a block edge agrees wherever its bytes fall`"
     },
     "StructuralBlockWalkTests.swift:Number extents read from the block masks agree with the ladder" : {
       "attributes" : [
@@ -1457,14 +1601,14 @@
       ],
       "code" : "@Test\n  func `Number extents read from the block masks agree with the ladder`() {\n    let bodies = [\n      // Valid, one per terminator.\n      \"[1,2]\", \"[1 ,2]\", \"[1\\n,2]\", \"[1\\t]\", \"[1\\r\\n]\", \"[ 1 ]\", \"{\\\"a\\\":1}\", \"{\\\"a\\\":1 }\",\n      \"[[1],[2]]\", \"[-0]\", \"[0]\", \"[1.5,2.5e3,-1E-2,1e+9]\", \"[12345678,123456789,1234567890123456789]\",\n      \"[0.1234567890123456789,99999999999999999999999]\", \"7\", \"7 \", \"-7.25e1\\n\",\n      // Malformed: the mask extent is longer than the number class run.\n      \"[12abc]\", \"[12abc,1]\", \"[12 abc]\", \"[12\\\"x\\\"]\", \"{\\\"a\\\":12:3}\", \"[12true]\", \"[1e5x,2]\",\n      \"[12\\\\n]\", \"[12_000]\", \"[1/2]\", \"[0x10]\", \"[1'2]\", \"12abc\", \"12\\\"\",\n      // Malformed inside the number class: the grammar walk's own rejections.\n      \"[1.2.3]\", \"[01]\", \"[-]\", \"[--1]\", \"[1-2]\", \"[1+2]\", \"[1e]\", \"[1e+]\", \"[1.]\", \"[-.5]\",\n      \"[1..2]\", \"[1ee2]\", \"[+1]\", \"[.5]\", \"[1.e2]\", \"[00]\", \"[-01]\",\n      // Long enough to cross a block edge at several pads: the edge fallback scans from the edge,\n      // so garbage on either side of it has to come back to the ladder too.\n      \"[12abc345,1]\", \"[1234567890123456789012345abc,1]\", \"[123456789012345678901234567890,1]\",\n      \"[1234567890.1234567890e-1234567890 ,1]\", \"[1234567890123456789\\\"x\\\"]\",\n      // Openers directly after a number: on the bracket class bit, so they end the extent.\n      \"[12[3]]\", \"[12{}]\", \"{\\\"a\\\":12{\\\"b\\\":1}}\",\n      // Mismatched or stray closers after a number.\n      \"[1}\", \"{\\\"a\\\":1]\", \"1]\", \"1}\", \"1,\",\n    ]\n    let tail = Array(repeating: UInt8(0x20), count: 64)\n    for pad in 0..<66 {\n      let spaces = Array(repeating: UInt8(0x20), count: pad)\n      for body in bodies {\n        Self.expectAgreement(\n          spaces + Array(body.utf8) + tail, \"\\(body.debugDescription) pad \\(pad)\", chunks: [64, 100, 4096, .max]\n        )\n      }\n    }\n  }",
       "comment" : "The walk reads a number's end off the block's `scalar_end` mask (whitespace, `,`, brackets)\nrather than scanning the number class. Every shape where those two disagree -- a number run\ninto a letter, a quote, a colon, a stray sign -- has to come out of the scalar ladder's mouth\nunchanged, and every valid terminator has to end the token where the ladder ends it. The\ntrailing pad keeps a whole block ahead of the token at every alignment, so the mask path (not\nthe block-edge fallback) is what runs.",
-      "endLine" : 299,
+      "endLine" : 409,
       "file" : "Tests/StreamParsingTests/JSON/StructuralBlockWalkTests.swift",
       "kind" : "func",
       "members" : [
 
       ],
       "qualifiedName" : "StructuralBlockWalkTests.`Number extents read from the block masks agree with the ladder`",
-      "startLine" : 268,
+      "startLine" : 378,
       "symbol" : "`Number extents read from the block masks agree with the ladder`"
     },
     "StructuralBlockWalkTests.swift:StructuralBlockWalkTests" : {
@@ -1473,7 +1617,7 @@
       ],
       "code" : "@Suite\nstruct StructuralBlockWalkTests {\n  …\n}",
       "comment" : "The structural run's 64-byte block path (JSONParserBlocks.swift) against the per-byte ladder it\nrestates. The scalar loop is the reference, and it is reachable two ways: a chunk of fewer than\n64 bytes can never enter the block path at all, and `blockWalkEnabled = false` turns it off at\nany chunking. Both are used below — the switch is what makes \"the same bytes, the same\nchunking, the two paths\" a fair comparison, which is the only comparison that pins the event\nstream exactly (how a string is cut into `stringChunk` calls is a property of the chunking).\n\nEvery assertion is on the raw call sequence with the bytes each call carried, plus the error's\nreason and byte offset. Nothing is normalised.",
-      "endLine" : 578,
+      "endLine" : 688,
       "file" : "Tests/StreamParsingTests/JSON/StructuralBlockWalkTests.swift",
       "kind" : "struct",
       "members" : [
@@ -1486,6 +1630,12 @@
         "`The block walk agrees with a structural prefix in front of it`",
         "`Every truncation of a swept document agrees`",
         "`Strings of every length around the grid agree`",
+        "edgeFeatures",
+        "edgeBody",
+        "edgeDocument",
+        "`A string crossing a block edge agrees wherever its bytes fall`",
+        "`A string closing at every distance past the block edge agrees`",
+        "`A string crossing a block edge agrees when the chunk cuts it anywhere`",
         "`Tokens cut by a block edge agree`",
         "`Number extents read from the block masks agree with the ladder`",
         "`A block the walk refuses where it was signalled cannot loop`",
@@ -1510,14 +1660,14 @@
       ],
       "code" : "@Test(arguments: Self.documents.indices)\n  func `The block walk and the scalar ladder agree at every alignment`(index: Int) {\n    let document = Self.documents[index]\n    for pad in 0..<70 {\n      let spaces = Array(repeating: UInt8(0x20), count: pad)\n      Self.expectAgreement(spaces + document.bytes, \"\\(document.name) pad \\(pad)\")\n    }\n  }",
       "comment" : "Each document is swept across the 64-byte grid by padding in front of it, so every feature\nlands at every alignment — including strings, numbers, literals and escapes cut by a block\nedge, and block edges falling inside strings.",
-      "endLine" : 198,
+      "endLine" : 210,
       "file" : "Tests/StreamParsingTests/JSON/StructuralBlockWalkTests.swift",
       "kind" : "func",
       "members" : [
 
       ],
       "qualifiedName" : "StructuralBlockWalkTests.`The block walk and the scalar ladder agree at every alignment`",
-      "startLine" : 191,
+      "startLine" : 203,
       "symbol" : "`The block walk and the scalar ladder agree at every alignment`"
     },
     "StructuralBlockWalkTests.swift:expectAgreement" : {
@@ -1655,7 +1805,7 @@
       "symbol" : "oracle"
     }
   },
-  "generatedAt" : "2026-11-10T05:18:50Z",
+  "generatedAt" : "2026-11-10T11:50:01Z",
   "guides" : {
     "macro-support" : {
       "path" : "Sources/StreamParsingMacroSupport/Documentation.docc/StreamParsingMacroSupport.md",
@@ -6634,8 +6784,26 @@
       },
       {
         "file" : "Tests/StreamParsingTests/JSON/CoalescedStringChunkTests.swift",
+        "key" : "CoalescedStringChunkTests.swift:A unicode escape run cut at every offset agrees with the byte fed parse",
+        "line" : 449,
+        "name" : "A unicode escape run cut at every offset agrees with the byte fed parse",
+        "parameterized" : true,
+        "suite" : "Coalesced string chunk tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/JSON/CoalescedStringChunkTests.swift",
+        "key" : "CoalescedStringChunkTests.swift:A unicode escape run is one chunk",
+        "line" : 471,
+        "name" : "A unicode escape run is one chunk",
+        "parameterized" : false,
+        "suite" : "Coalesced string chunk tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/JSON/CoalescedStringChunkTests.swift",
         "key" : "CoalescedStringChunkTests.swift:A chunk rejection reports at the flush",
-        "line" : 383,
+        "line" : 488,
         "name" : "A chunk rejection reports at the flush",
         "parameterized" : false,
         "suite" : "Coalesced string chunk tests",
@@ -6833,7 +7001,7 @@
       {
         "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
         "key" : "EscapedTailBlockTests.swift:Random escape-dense values agree with the per-run loop at every split",
-        "line" : 183,
+        "line" : 184,
         "name" : "Random escape-dense values agree with the per-run loop at every split",
         "parameterized" : false,
         "suite" : "Escaped tail block tests",
@@ -6842,7 +7010,7 @@
       {
         "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
         "key" : "EscapedTailBlockTests.swift:Values longer than the buffer agree with the per-run loop",
-        "line" : 194,
+        "line" : 195,
         "name" : "Values longer than the buffer agree with the per-run loop",
         "parameterized" : false,
         "suite" : "Escaped tail block tests",
@@ -6851,7 +7019,7 @@
       {
         "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
         "key" : "EscapedTailBlockTests.swift:Long runs between escapes agree with the per-run loop",
-        "line" : 217,
+        "line" : 218,
         "name" : "Long runs between escapes agree with the per-run loop",
         "parameterized" : false,
         "suite" : "Escaped tail block tests",
@@ -6860,7 +7028,7 @@
       {
         "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
         "key" : "EscapedTailBlockTests.swift:Every selector byte decodes or fails as the per-run loop has it",
-        "line" : 243,
+        "line" : 244,
         "name" : "Every selector byte decodes or fails as the per-run loop has it",
         "parameterized" : false,
         "suite" : "Escaped tail block tests",
@@ -6869,7 +7037,7 @@
       {
         "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
         "key" : "EscapedTailBlockTests.swift:Unicode escapes decode or fail as the per-run loop has them at every block offset",
-        "line" : 262,
+        "line" : 263,
         "name" : "Unicode escapes decode or fail as the per-run loop has them at every block offset",
         "parameterized" : true,
         "suite" : "Escaped tail block tests",
@@ -6878,7 +7046,7 @@
       {
         "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
         "key" : "EscapedTailBlockTests.swift:Values dense in unicode escapes agree with the per-run loop",
-        "line" : 289,
+        "line" : 290,
         "name" : "Values dense in unicode escapes agree with the per-run loop",
         "parameterized" : false,
         "suite" : "Escaped tail block tests",
@@ -6887,7 +7055,7 @@
       {
         "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
         "key" : "EscapedTailBlockTests.swift:Escaped backslashes and quotes are content at every block offset",
-        "line" : 316,
+        "line" : 317,
         "name" : "Escaped backslashes and quotes are content at every block offset",
         "parameterized" : false,
         "suite" : "Escaped tail block tests",
@@ -6896,7 +7064,7 @@
       {
         "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
         "key" : "EscapedTailBlockTests.swift:Invalid UTF-8 is rejected at the offset the per-run loop reports",
-        "line" : 372,
+        "line" : 373,
         "name" : "Invalid UTF-8 is rejected at the offset the per-run loop reports",
         "parameterized" : true,
         "suite" : "Escaped tail block tests",
@@ -6905,8 +7073,35 @@
       {
         "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
         "key" : "EscapedTailBlockTests.swift:Non-ASCII prose with escapes agrees at every split",
-        "line" : 395,
+        "line" : 396,
         "name" : "Non-ASCII prose with escapes agrees at every split",
+        "parameterized" : false,
+        "suite" : "Escaped tail block tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
+        "key" : "EscapedTailBlockTests.swift:Runs of three-byte unicode escapes give way exactly where they stop",
+        "line" : 431,
+        "name" : "Runs of three-byte unicode escapes give way exactly where they stop",
+        "parameterized" : true,
+        "suite" : "Escaped tail block tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
+        "key" : "EscapedTailBlockTests.swift:The kernel's UTF-8 tables are the validator's",
+        "line" : 452,
+        "name" : "The kernel's UTF-8 tables are the validator's",
+        "parameterized" : false,
+        "suite" : "Escaped tail block tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
+        "key" : "EscapedTailBlockTests.swift:Long runs of three-byte unicode escapes agree at every buffer and chunk size",
+        "line" : 468,
+        "name" : "Long runs of three-byte unicode escapes agree at every buffer and chunk size",
         "parameterized" : false,
         "suite" : "Escaped tail block tests",
         "target" : "StreamParsingTests"
@@ -7544,7 +7739,7 @@
       {
         "file" : "Tests/StreamParsingTests/JSON/StructuralBlockWalkTests.swift",
         "key" : "StructuralBlockWalkTests.swift:The block walk and the scalar ladder agree at every alignment",
-        "line" : 191,
+        "line" : 203,
         "name" : "The block walk and the scalar ladder agree at every alignment",
         "parameterized" : true,
         "suite" : "StructuralBlockWalkTests",
@@ -7553,7 +7748,7 @@
       {
         "file" : "Tests/StreamParsingTests/JSON/StructuralBlockWalkTests.swift",
         "key" : "StructuralBlockWalkTests.swift:The block walk agrees with a structural prefix in front of it",
-        "line" : 202,
+        "line" : 214,
         "name" : "The block walk agrees with a structural prefix in front of it",
         "parameterized" : true,
         "suite" : "StructuralBlockWalkTests",
@@ -7562,7 +7757,7 @@
       {
         "file" : "Tests/StreamParsingTests/JSON/StructuralBlockWalkTests.swift",
         "key" : "StructuralBlockWalkTests.swift:Every truncation of a swept document agrees",
-        "line" : 213,
+        "line" : 225,
         "name" : "Every truncation of a swept document agrees",
         "parameterized" : false,
         "suite" : "StructuralBlockWalkTests",
@@ -7571,7 +7766,7 @@
       {
         "file" : "Tests/StreamParsingTests/JSON/StructuralBlockWalkTests.swift",
         "key" : "StructuralBlockWalkTests.swift:Strings of every length around the grid agree",
-        "line" : 228,
+        "line" : 240,
         "name" : "Strings of every length around the grid agree",
         "parameterized" : false,
         "suite" : "StructuralBlockWalkTests",
@@ -7579,8 +7774,35 @@
       },
       {
         "file" : "Tests/StreamParsingTests/JSON/StructuralBlockWalkTests.swift",
+        "key" : "StructuralBlockWalkTests.swift:A string crossing a block edge agrees wherever its bytes fall",
+        "line" : 300,
+        "name" : "A string crossing a block edge agrees wherever its bytes fall",
+        "parameterized" : true,
+        "suite" : "StructuralBlockWalkTests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/JSON/StructuralBlockWalkTests.swift",
+        "key" : "StructuralBlockWalkTests.swift:A string closing at every distance past the block edge agrees",
+        "line" : 321,
+        "name" : "A string closing at every distance past the block edge agrees",
+        "parameterized" : false,
+        "suite" : "StructuralBlockWalkTests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/JSON/StructuralBlockWalkTests.swift",
+        "key" : "StructuralBlockWalkTests.swift:A string crossing a block edge agrees when the chunk cuts it anywhere",
+        "line" : 339,
+        "name" : "A string crossing a block edge agrees when the chunk cuts it anywhere",
+        "parameterized" : true,
+        "suite" : "StructuralBlockWalkTests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/JSON/StructuralBlockWalkTests.swift",
         "key" : "StructuralBlockWalkTests.swift:Tokens cut by a block edge agree",
-        "line" : 247,
+        "line" : 357,
         "name" : "Tokens cut by a block edge agree",
         "parameterized" : false,
         "suite" : "StructuralBlockWalkTests",
@@ -7589,7 +7811,7 @@
       {
         "file" : "Tests/StreamParsingTests/JSON/StructuralBlockWalkTests.swift",
         "key" : "StructuralBlockWalkTests.swift:Number extents read from the block masks agree with the ladder",
-        "line" : 268,
+        "line" : 378,
         "name" : "Number extents read from the block masks agree with the ladder",
         "parameterized" : false,
         "suite" : "StructuralBlockWalkTests",
@@ -7598,7 +7820,7 @@
       {
         "file" : "Tests/StreamParsingTests/JSON/StructuralBlockWalkTests.swift",
         "key" : "StructuralBlockWalkTests.swift:A block the walk refuses where it was signalled cannot loop",
-        "line" : 305,
+        "line" : 415,
         "name" : "A block the walk refuses where it was signalled cannot loop",
         "parameterized" : false,
         "suite" : "StructuralBlockWalkTests",
@@ -7607,7 +7829,7 @@
       {
         "file" : "Tests/StreamParsingTests/JSON/StructuralBlockWalkTests.swift",
         "key" : "StructuralBlockWalkTests.swift:Bytes that alias into the signal after whitespace report the same error",
-        "line" : 329,
+        "line" : 439,
         "name" : "Bytes that alias into the signal after whitespace report the same error",
         "parameterized" : false,
         "suite" : "StructuralBlockWalkTests",
@@ -7616,7 +7838,7 @@
       {
         "file" : "Tests/StreamParsingTests/JSON/StructuralBlockWalkTests.swift",
         "key" : "StructuralBlockWalkTests.swift:The depth cap reports the same byte at every chunking",
-        "line" : 357,
+        "line" : 467,
         "name" : "The depth cap reports the same byte at every chunking",
         "parameterized" : false,
         "suite" : "StructuralBlockWalkTests",
@@ -7625,7 +7847,7 @@
       {
         "file" : "Tests/StreamParsingTests/JSON/StructuralBlockWalkTests.swift",
         "key" : "StructuralBlockWalkTests.swift:Benchmark corpora parse identically on both paths",
-        "line" : 437,
+        "line" : 547,
         "name" : "Benchmark corpora parse identically on both paths",
         "parameterized" : true,
         "suite" : "StructuralBlockWalkTests",
@@ -7634,7 +7856,7 @@
       {
         "file" : "Tests/StreamParsingTests/JSON/StructuralBlockWalkTests.swift",
         "key" : "StructuralBlockWalkTests.swift:A skipping sink agrees at every alignment",
-        "line" : 466,
+        "line" : 576,
         "name" : "A skipping sink agrees at every alignment",
         "parameterized" : true,
         "suite" : "StructuralBlockWalkTests",
@@ -7643,7 +7865,7 @@
       {
         "file" : "Tests/StreamParsingTests/JSON/StructuralBlockWalkTests.swift",
         "key" : "StructuralBlockWalkTests.swift:Benchmark corpora agree with a skipping sink",
-        "line" : 493,
+        "line" : 603,
         "name" : "Benchmark corpora agree with a skipping sink",
         "parameterized" : true,
         "suite" : "StructuralBlockWalkTests",
@@ -7652,7 +7874,7 @@
       {
         "file" : "Tests/StreamParsingTests/JSON/StructuralBlockWalkTests.swift",
         "key" : "StructuralBlockWalkTests.swift:A stream that changes shape agrees with the ladder",
-        "line" : 559,
+        "line" : 669,
         "name" : "A stream that changes shape agrees with the ladder",
         "parameterized" : true,
         "suite" : "StructuralBlockWalkTests",
@@ -7661,7 +7883,7 @@
       {
         "file" : "Tests/StreamParsingTests/JSON/StructuralBlockWalkTests.swift",
         "key" : "StructuralBlockWalkTests.swift:Test fixtures parse identically on both paths",
-        "line" : 568,
+        "line" : 678,
         "name" : "Test fixtures parse identically on both paths",
         "parameterized" : true,
         "suite" : "StructuralBlockWalkTests",
@@ -9621,6 +9843,24 @@
         "target" : "StreamParsingTests"
       },
       {
+        "file" : "Tests/StreamParsingTests/Scanning/BlockClassifierTests.swift",
+        "key" : "BlockClassifierTests.swift:Every byte value at every position classifies as documented",
+        "line" : 136,
+        "name" : "Every byte value at every position classifies as documented",
+        "parameterized" : false,
+        "suite" : "Block classifier tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Scanning/BlockClassifierTests.swift",
+        "key" : "BlockClassifierTests.swift:Random blocks over the JSON alphabet classify as documented",
+        "line" : 154,
+        "name" : "Random blocks over the JSON alphabet classify as documented",
+        "parameterized" : false,
+        "suite" : "Block classifier tests",
+        "target" : "StreamParsingTests"
+      },
+      {
         "file" : "Tests/StreamParsingTests/Scanning/CustomFastFloatTests.swift",
         "key" : "CustomFastFloatTests.swift:Custom bfloat16 precision is rounded directly by the generic kernel",
         "line" : 170,
@@ -9659,7 +9899,7 @@
       {
         "file" : "Tests/StreamParsingTests/Scanning/DoubleConversionDifferentialTests.swift",
         "key" : "DoubleConversionDifferentialTests.swift:Every number in a float corpus converts exactly as Double(String) does",
-        "line" : 134,
+        "line" : 155,
         "name" : "Every number in a float corpus converts exactly as Double(String) does",
         "parameterized" : true,
         "suite" : "Double conversion differential tests",
@@ -9668,7 +9908,7 @@
       {
         "file" : "Tests/StreamParsingTests/Scanning/DoubleConversionDifferentialTests.swift",
         "key" : "DoubleConversionDifferentialTests.swift:A chunked float corpus converts identically",
-        "line" : 150,
+        "line" : 171,
         "name" : "A chunked float corpus converts identically",
         "parameterized" : false,
         "suite" : "Double conversion differential tests",
@@ -9677,7 +9917,7 @@
       {
         "file" : "Tests/StreamParsingTests/Scanning/DoubleConversionDifferentialTests.swift",
         "key" : "DoubleConversionDifferentialTests.swift:Edge case tokens convert exactly as Double(String) does",
-        "line" : 158,
+        "line" : 179,
         "name" : "Edge case tokens convert exactly as Double(String) does",
         "parameterized" : false,
         "suite" : "Double conversion differential tests",
@@ -9685,8 +9925,17 @@
       },
       {
         "file" : "Tests/StreamParsingTests/Scanning/DoubleConversionDifferentialTests.swift",
+        "key" : "DoubleConversionDifferentialTests.swift:Random decimals convert exactly as Double(String) does",
+        "line" : 214,
+        "name" : "Random decimals convert exactly as Double(String) does",
+        "parameterized" : false,
+        "suite" : "Double conversion differential tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Scanning/DoubleConversionDifferentialTests.swift",
         "key" : "DoubleConversionDifferentialTests.swift:The Double binary format constants describe Double",
-        "line" : 192,
+        "line" : 250,
         "name" : "The Double binary format constants describe Double",
         "parameterized" : false,
         "suite" : "Double conversion differential tests",
@@ -9922,6 +10171,15 @@
         "key" : "LookupTableTests.swift:Sequence Length Agrees With The Compare Ladder On Every Byte",
         "line" : 30,
         "name" : "Sequence Length Agrees With The Compare Ladder On Every Byte",
+        "parameterized" : false,
+        "suite" : "Lookup table tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Scanning/LookupTableTests.swift",
+        "key" : "LookupTableTests.swift:Hex Quad Agrees With A Per Character Decode On Every Byte In Every Lane",
+        "line" : 48,
+        "name" : "Hex Quad Agrees With A Per Character Decode On Every Byte In Every Lane",
         "parameterized" : false,
         "suite" : "Lookup table tests",
         "target" : "StreamParsingTests"
@@ -10693,8 +10951,17 @@
       },
       {
         "file" : "Tests/StreamParsingTests/Schema/StreamFieldTableTests.swift",
-        "key" : "StreamFieldTableTests.swift:Long-key tail compare checks every byte at every length",
+        "key" : "StreamFieldTableTests.swift:Indexed tables match long keys past a first-word collision",
         "line" : 257,
+        "name" : "Indexed tables match long keys past a first-word collision",
+        "parameterized" : true,
+        "suite" : "StreamFieldTableTests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Schema/StreamFieldTableTests.swift",
+        "key" : "StreamFieldTableTests.swift:Long-key tail compare checks every byte at every length",
+        "line" : 278,
         "name" : "Long-key tail compare checks every byte at every length",
         "parameterized" : true,
         "suite" : "StreamFieldTableTests",
@@ -11175,6 +11442,24 @@
         "name" : "recognitionDoesNotImplySuccessfulApplication",
         "parameterized" : true,
         "suite" : "FieldRecognitionTests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Sink/HomogeneousNumberRouteTests.swift",
+        "key" : "HomogeneousNumberRouteTests.swift:Elements and lanes hold what the standard library parses",
+        "line" : 37,
+        "name" : "Elements and lanes hold what the standard library parses",
+        "parameterized" : true,
+        "suite" : "Homogeneous number route tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Sink/HomogeneousNumberRouteTests.swift",
+        "key" : "HomogeneousNumberRouteTests.swift:Refused tokens fail the same way on either half",
+        "line" : 81,
+        "name" : "Refused tokens fail the same way on either half",
+        "parameterized" : true,
+        "suite" : "Homogeneous number route tests",
         "target" : "StreamParsingTests"
       },
       {
@@ -12353,11 +12638,11 @@
         "tests" : 80
       },
       {
-        "files" : 90,
+        "files" : 92,
         "name" : "StreamParsingTests",
-        "parameterized" : 215,
+        "parameterized" : 222,
         "path" : "Tests/StreamParsingTests",
-        "tests" : 897
+        "tests" : 912
       },
       {
         "files" : 2,

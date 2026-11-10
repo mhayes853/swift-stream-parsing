@@ -154,8 +154,8 @@ func streamParseFloatingPoint<T: BinaryFloatingPoint & LosslessStringConvertible
 }
 
 // `Double(streamParsing:info:)` split for the sink's homogeneous routes (`[Double]` elements and
-// SIMD lanes): Clinger's exact path inline in the caller, everything else behind one outlined
-// call. Through the initializer, a Mesh element paid three frames (the sink's 12-register entry,
+// SIMD lanes): Clinger's exact path, then `streamParseDoubleSlow`, both inline in the caller --
+// the sink's outlined full paths, so the conversion runs in their frame. Through the initializer, a Mesh element paid three frames (the sink's 12-register entry,
 // the initializer's, Eisel-Lemire's) for what is a `ucvtf` and an `fdiv`. Same tiers in the same
 // order as `streamParseFloatingPoint`, so the value is bit-identical. `Double`'s conformance is
 // this module's and takes the default `streamConvertDecimal`, so calling the kernel directly

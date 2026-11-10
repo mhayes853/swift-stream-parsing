@@ -999,7 +999,8 @@
         "One classification replaces the whitespace scan before every token, the string scan before every in-place key or value, the number scan, and the per-string high-bit reduction. `starts` holds the first byte of each token; `quote` pairs string extents; `backslash` decides whether an extent can stay in place; `scalar_end` — whitespace, `,` and the brackets — gives a number's end as the first set bit above it. On arm64 the NEON kernel is inlined at the call site; on x86 the AVX2 twin is a call per block.",
         "The grid moves with completed tokens. If a long string or token crosses byte 64, its existing scanner finishes it and the next classification begins at that end rather than at the old fixed boundary. Every classification therefore starts with zero quote and escape carries, and long string interiors are not classified again.",
         "A token takes the separator after it where that saves a trip round the mask loop. A key whose colon sits against its closing quote moves straight to `.value` (typed Twitter +5.9%, CITM +4.5%). A number in an array whose comma follows it hands the rest of the array to `fuseNumberRun`, which walks an indented array ~80 instructions a number cheaper than the mask loop did (numbers indented +45% raw / +37% typed). The same fusion for a value's comma was measured, +0.5% typed for seven copies of the tail, and not kept.",
-        "`ladder_block` is the classifier's verdict that a block holds nothing to buy: no whitespace outside a string, or no string and no whitespace run. The walk returns such a block to the ladder, which comes back at the next indentation or string after whitespace. It replaced a strike gate that counted blocks, gave up after four and re-armed after 64 KB of chunks — which parsed the same document differently at 2 KB chunks than at 8 KB. Against it, typed rows +0.3..+2.7% and Mesh typed -5.5%: Mesh's separators now put every number through the signal test on the way to the scan."
+        "`ladder_block` is the classifier's verdict that a block holds nothing to buy: no whitespace outside a string, or no string and no whitespace run. The walk returns such a block to the ladder, which comes back at the next indentation or string after whitespace. It replaced a strike gate that counted blocks, gave up after four and re-armed after 64 KB of chunks — which parsed the same document differently at 2 KB chunks than at 8 KB. Against it, typed rows +0.3..+2.7% and Mesh typed -5.5%: Mesh's separators now put every number through the signal test on the way to the scan.",
+        "Thirteen reworks of the walk were built in one session and none landed: its state in registers (four forms; the three measured were slower), string edges and escape runs read off the masks, the quote decision off the mask, the mask advanced before the emit, and the comma taken with a string. The one typed gain, about +1% from a pair whose halves each lost alone, was code placement; the stack that won raw rows by 2–5% cost typed CITM and Twitter 0.6–0.9%."
       ],
       "evidence": {
         "doc": [
@@ -1010,7 +1011,16 @@
           "separators-after-the-token-number-arrays-and-the-key-s-colon/rejected-the-value-s-comma-taken-with-the-value-in-the-block-walk",
           "separators-after-the-token-number-arrays-and-the-key-s-colon/landed-indented-number-arrays-leave-the-walk-for-fusenumberrun-with-a-predicted-indent",
           "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/skipping-a-subtree-inside-the-block-walk-built-measured-rejected",
-          "design-notes-relocated-from-source-comments/scanners-and-c-shims-streamscanners-swift-streamparsingshims/the-structural-block-classifier-s-two-table-encoding"
+          "design-notes-relocated-from-source-comments/scanners-and-c-shims-streamscanners-swift-streamparsingshims/the-structural-block-classifier-s-two-table-encoding",
+          "landed-the-skip-classifier-s-masks-from-a-deinterleaved-load/rejected-the-same-load-in-the-structural-classifier",
+          "rejected-six-reworks-of-the-structural-block-walk",
+          "rejected-six-reworks-of-the-structural-block-walk/rejected-the-walk-s-state-in-registers",
+          "rejected-six-reworks-of-the-structural-block-walk/rejected-the-string-edge-scan-from-the-first-backslash-the-escape-run-off-the-masks",
+          "rejected-six-reworks-of-the-structural-block-walk/rejected-the-quote-decision-off-the-mask",
+          "rejected-six-reworks-of-the-structural-block-walk/rejected-the-mask-advanced-before-the-emit",
+          "rejected-six-reworks-of-the-structural-block-walk/rejected-the-comma-taken-with-an-in-block-string-value",
+          "rejected-six-reworks-of-the-structural-block-walk/rejected-the-stack-that-wins-the-raw-rows",
+          "rejected-six-reworks-of-the-structural-block-walk/measured-byte-fed-rows-that-moved-without-their-code"
         ],
         "source": [
           "JSONParserBlocks.swift:consumeStructuralBlocks",
@@ -1065,7 +1075,7 @@
           "id": "classify",
           "title": "classify 64 bytes",
           "kicker": "4 × 16-byte loads",
-          "detail": "The C kernel returns `starts`, unescaped quote bits, every backslash bit, `scalar_end`, the high-byte flag, the scalar-decline flag and `ladder_block`. `scalar_end` is two class bits the lookups already produce (COMMA | BRACK) ORed with whitespace — four `cmtst` and one movemask. `ladder_block` is computed in the kernel rather than handed out as more masks, because a flag is cheaper than another 64-bit field in the struct. The walk always supplies zero carries because it completes every token it starts before moving its grid.",
+          "detail": "The C kernel returns `starts`, unescaped quote bits, every backslash bit, `scalar_end`, the high-byte flag, the scalar-decline flag and `ladder_block`. `scalar_end` is two class bits the lookups already produce (COMMA | BRACK) ORed with whitespace — four `cmtst` and one movemask. `ladder_block` is computed in the kernel rather than handed out as more masks, because a flag is cheaper than another 64-bit field in the struct. The walk always supplies zero carries because it completes every token it starts before moving its grid. Four plain loads and `movemask4`: the skip classifier's `vld4q_u8` form is 14% cheaper a block but about 4 cycles longer from the load to `starts`, which the walk waits on (raw Twitter -4.8%, CITM -4.3%, GitHub -4.3%).",
           "source": "StreamParsingShims.h:stream_parsing_classify_structural_block",
           "ordering": "ordered",
           "next": [
@@ -2244,6 +2254,7 @@
       "prose": [
         "An escape ends the zero-copy string run. From a string value's first backslash on, `coalescedEscapedStringTail` decodes each escape into the parser's own buffer, and the scan that finds the literal run between two escapes copies it in behind as it reads — each sixteen-byte block is stored from the register the terminator test already loaded. The sink gets one `stringChunk` per buffer-full rather than one per fragment. `\\uXXXX` sequences are decoded to UTF-8 bytes inside the parser — including surrogate pairs, which have to be held across the gap between the two halves and can be cut by a chunk boundary in the middle.",
         "On arm64 the tail takes whole 64-byte blocks first. `stream_parsing_unescape_blocks` stores each block to the buffer whole, decodes two escapes whether or not the block has two, and validates UTF-8 over the source in the same pass, so nothing branches on where the escapes are; the per-run loop takes what it hands back. LLM message +43.5% raw / +25.4% typed, Twitter escaped +12.9% / +5.8%.",
+        "`\\u` escapes come in runs: `twitterescaped` holds 31,818 of them in 1,715 runs. In the kernel, a `\\u` whose bytes 6 and 18 on are backslashes enters `stream_parsing_unescape_bmp_run`, which checks the shape of four escapes with NEON and writes the UTF-8 of four three-byte scalars from two `tbl` gathers (Twitter escaped +19.3% raw / +12.6% typed). On the per-run loop, `coalescedUnicodeEscapeEnd` keeps decoding while the next bytes are another escape it can take whole, and `streamHexQuad` decodes four digits in one general-purpose register (+29.4% raw / +16.8% typed, measured before the kernel's run decode).",
         "Every sink takes that path. The fragments an escape leaves are tiny — 57% of `llm_message`'s string chunks were a single byte — so an accumulating sink saves many times the copy in calls it no longer makes, while a sink whose calls are nearly free pays for the copy (`FastCountingSink` on LLM message reads ~11% slower). That was judged a better price than a second delivery mode: chunk boundaries were never promised.",
         "Nothing here produces a `Unicode.Scalar` or a `String`. That keeps the Unicode data tables out of the binary, which is what lets the core build under Embedded Swift."
       ],
@@ -2264,7 +2275,18 @@
           "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64/rejected-skipping-the-escape-slots-inside-the-kernel-after-a-quiet-stretch",
           "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64/landed-uxxxx-decoded-in-the-kernel-no-entry-heuristic-the-result-in-registers",
           "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64/rejected-declining-values-that-end-inside-their-first-block",
-          "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64/measured-the-gate"
+          "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64/measured-the-gate",
+          "landed-a-run-of-u-escapes-decoded-in-one-call-hex-quads-in-a-general-purpose-register",
+          "landed-a-run-of-u-escapes-decoded-in-one-call-hex-quads-in-a-general-purpose-register/measured",
+          "landed-a-run-of-u-escapes-decoded-in-one-call-hex-quads-in-a-general-purpose-register/measured-on-top-of-the-unescape-kernel",
+          "landed-a-run-of-u-escapes-decoded-in-one-call-hex-quads-in-a-general-purpose-register/rejected-two-escapes-a-step",
+          "landed-runs-of-three-byte-u-escapes-decoded-four-at-a-time-in-the-unescape-kernel",
+          "landed-runs-of-three-byte-u-escapes-decoded-four-at-a-time-in-the-unescape-kernel/measured-the-gate",
+          "landed-runs-of-three-byte-u-escapes-decoded-four-at-a-time-in-the-unescape-kernel/rejected-utf-8-validated-in-one-pass-at-the-kernel-s-exit",
+          "landed-runs-of-three-byte-u-escapes-decoded-four-at-a-time-in-the-unescape-kernel/rejected-a-branch-free-walk-decoding-every-escape",
+          "landed-runs-of-three-byte-u-escapes-decoded-four-at-a-time-in-the-unescape-kernel/rejected-the-lead-digit-test-at-the-call",
+          "landed-runs-of-three-byte-u-escapes-decoded-four-at-a-time-in-the-unescape-kernel/rejected-the-run-inline-with-opaque-constants",
+          "landed-runs-of-three-byte-u-escapes-decoded-four-at-a-time-in-the-unescape-kernel/measured-the-typed-second-copy"
         ],
         "source": [
           "JSONParser.swift:consumeEscape",
@@ -2282,11 +2304,16 @@
           "JSONParser.swift:coalescedEscapedBlocks",
           "StreamParsingShims.h:stream_parsing_unescape_blocks",
           "Unescape.c:stream_parsing_unescape_blocks",
-          "Unescape.c:stream_parsing_unescape_unicode"
+          "Unescape.c:stream_parsing_unescape_unicode",
+          "JSONParser.swift:coalescedUnicodeEscapeEnd",
+          "Unescape.c:stream_parsing_unescape_bmp_run",
+          "Unescape.c:stream_parsing_unescape_four_bmp",
+          "StreamParsingShims.h:stream_parsing_unescape_utf8_table"
         ],
         "asm": [
           "JSONParser.consumeUnicodeDigit",
-          "stream_parsing_unescape_blocks"
+          "stream_parsing_unescape_blocks",
+          "stream_parsing_unescape_bmp_run"
         ]
       },
       "next": [],
@@ -2295,7 +2322,7 @@
           "id": "backslash",
           "title": "the run stopped on a backslash",
           "kicker": "one byte ahead",
-          "detail": "The string scan ends at the backslash and the selector is the next byte. A string value's backslash sends the rest of the value to the coalescing tail; the per-byte escape states and keys take the same decoders but emit each escape on its own.",
+          "detail": "The string scan ends at the backslash and the selector is the next byte. A string value's backslash sends the rest of the value to the coalescing tail. A key's escape is decoded into the key buffer by the same `fusedEscapeEnd` with `coalescing: false`, one escape per call; anything the chunk cuts goes to the per-byte escape states.",
           "ordering": "ordered",
           "next": [
             {
@@ -2305,10 +2332,16 @@
               "when": "`stringRunBody` hands over to `coalescedEscapedStringTail`, out of line by force: spelled inside the run body it cost raw llm 52%."
             },
             {
+              "to": "fused",
+              "kind": "branch",
+              "label": "a key's `\\u`",
+              "when": "`consumeKeyRun` calls `fusedEscapeEnd(coalescing: false)`, which decodes a simple escape in place and sends a `\\u` to `fusedUnicodeEscapeEnd`."
+            },
+            {
               "to": "simple",
               "kind": "branch",
-              "label": "the chunk cut it, or a key",
-              "when": "A backslash that is the chunk's last byte leaves for `.escape`; a key's escape is reassembled into the key buffer."
+              "label": "the chunk cut it",
+              "when": "A backslash that is the chunk's last byte, or an escape with a diagnostic, leaves for `.escape`."
             }
           ]
         },
@@ -2347,10 +2380,10 @@
           "ordering": "ordered",
           "next": [
             {
-              "to": "fused",
+              "to": "unirun",
               "kind": "branch",
               "label": "`\\u` with six bytes left",
-              "when": "Decoded here rather than handed to the per-byte states."
+              "when": "`coalescedUnicodeEscapeEnd` decodes it, and the escapes after it as long as it can take them whole."
             },
             {
               "to": "table",
@@ -2363,6 +2396,26 @@
               "kind": "branch",
               "label": "nil",
               "when": "A bad selector, a pending high surrogate, or an escape past the chunk end."
+            }
+          ]
+        },
+        {
+          "id": "unirun",
+          "title": "coalescedUnicodeEscapeEnd",
+          "kicker": "a run, one call",
+          "detail": "Decodes the escape, then keeps decoding while the next bytes are another escape it can take whole — a `\\u`, a surrogate pair or a simple escape — storing each one's UTF-8 word behind the buffer's fill count, which stays in a register for the run. It returns where the first escape it cannot take starts, so which escapes fall back to the per-byte states, and every error offset, are unchanged. Each escape it takes is one the tail no longer answers by scanning a zero-length run, reading the backslash and calling back in. `twitterescaped` holds 31,818 `\\u` escapes in 1,715 runs, a mean run of 18.5. Raw Twitter escaped +29.4%, typed +16.8%; with the unescape kernel in place, which hands it only what the kernel declines, +5.5% / +3.8%.",
+          "source": "JSONParser.swift:coalescedUnicodeEscapeEnd",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "quad",
+              "kind": "detail",
+              "label": "four hex digits per escape"
+            },
+            {
+              "to": "emit",
+              "kind": "step",
+              "label": "one store per escape"
             }
           ]
         },
@@ -2391,10 +2444,16 @@
           "id": "kernel",
           "title": "stream_parsing_unescape_blocks",
           "kicker": "Unescape.c",
-          "detail": "Per 64-byte block: store it whole, find quotes and control bytes in two operations a vector, then decode two escapes whether or not the block has two — an absent one has position 64, where its decoded byte and 64-byte recopy land past the output cursor. A third escape, a stop or a `\\u` takes one out-of-line walk of the block. UTF-8 is checked over the source with `stream_parsing_utf8_block_errors`: one vector a byte ahead of the first non-ASCII group, all four when the non-ASCII bytes span more than three groups, for sixteen blocks from any block with a non-ASCII byte, and none in text without one. Measured alone: 9.70 ns a block on LLM message, 6.4 ns on plain ASCII. A first version that branched on whether a block held an escape measured LLM raw -0.6%: one unpredictable event per block instead of one per escape.",
+          "detail": "Per 64-byte block: store it whole, find quotes and control bytes in two operations a vector, then decode two escapes whether or not the block has two — an absent one has position 64, where its decoded byte and 64-byte recopy land past the output cursor. A third escape, a stop or a `\\u` takes one out-of-line walk of the block. UTF-8 is checked over the source with `stream_parsing_utf8_block_errors`: one vector a byte ahead of the first non-ASCII group, all four when the non-ASCII bytes span more than three groups, for sixteen blocks from any block with a non-ASCII byte, and none in text without one. Measured alone: 9.70 ns a block on LLM message, 6.4 ns on plain ASCII. A first version that branched on whether a block held an escape measured LLM raw -0.6%: one unpredictable event per block instead of one per escape. The three UTF-8 tables are the kernel's own copy, held to the Swift ones by a test through `stream_parsing_unescape_utf8_table`; passed in, they were three getter calls per entry from out-of-module sink specialisations.",
           "source": "Unescape.c:stream_parsing_unescape_blocks",
           "ordering": "ordered",
           "next": [
+            {
+              "to": "bmprun",
+              "kind": "branch",
+              "label": "a `\\u` with backslashes 6 and 18 bytes on",
+              "when": "Possibly a run of three-byte scalars. Marked unlikely, so LLVM saves the vector registers around the call rather than at every entry to the walk."
+            },
             {
               "to": "unicode",
               "kind": "branch",
@@ -2409,10 +2468,24 @@
           ]
         },
         {
+          "id": "bmprun",
+          "title": "stream_parsing_unescape_bmp_run",
+          "kicker": "four escapes, two tbl",
+          "detail": "Out of line, entered once per run. It first turns away an escape whose digits, or the next one's, begin with `0` or `d`/`D`. Then, while the 24 bytes ahead are four `\\u` escapes of three-byte non-surrogate scalars, their twelve UTF-8 bytes come from two `tbl` gathers of the nibbles and two per-lane shifts (`stream_parsing_unescape_four_bmp`), then two more for the remainder. A run may continue past its block as far as the chunk's and the buffer's slack allow, and the next block begins behind it. The kernel alone on Twitter escaped: 161.7 µs before, 63 after. Inline forms measured worse end to end: with literal constants LLVM held fourteen vectors across the block loop, and with the constants behind an opaque pointer raw Twitter escaped gained +6.2% where this form gains +20.8%. Testing the lead digits at the call cost LLM message 3%.",
+          "source": "Unescape.c:stream_parsing_unescape_bmp_run",
+          "next": [
+            {
+              "to": "unicode",
+              "kind": "step",
+              "label": "the escape the run did not take"
+            }
+          ]
+        },
+        {
           "id": "unicode",
           "title": "stream_parsing_unescape_unicode",
           "kicker": "6 or 12 bytes",
-          "detail": "Four hex digits through a 256-entry table, a surrogate pair taken whole, and zero bytes taken for anything the per-escape path has a diagnostic for, which is left where it is. Stopping at each `\\u` for the caller instead cost 17.3 ns an escape, 3.2% of raw GSoC; removing the entry heuristic that kept the kernel off `\\u`-dense text took raw Twitter escaped +12.7%.",
+          "detail": "Four hex digits through a 256-entry table, and zero bytes taken for anything the per-escape path has a diagnostic for, which is left where it is. A surrogate pair whose halves are both in the block is two six-byte escapes, so a decode never edits the walk's escape mask: taking twelve made the walk clear the partner's bit with a `csel` on `taken`, which put the decode on the path to the next escape (8% of the walk on Twitter escaped). Only a pair that crosses the block takes twelve. Stopping at each `\\u` for the caller instead cost 17.3 ns an escape, 3.2% of raw GSoC; removing the entry heuristic that kept the kernel off `\\u`-dense text took raw Twitter escaped +12.7%.",
           "source": "Unescape.c:stream_parsing_unescape_unicode",
           "next": [
             {
@@ -2505,7 +2578,7 @@
           "id": "fused",
           "title": "fusedUnicodeEscapeEnd",
           "kicker": "@inline(never)",
-          "detail": "Outlined, because it is cold relative to the scan it interrupts. The bounds test comes first so the halfword load that follows stays inside the chunk.",
+          "detail": "The unbuffered arm: one escape per call, emitted through the scratch. Outlined, because it is cold relative to the scan it interrupts. The bounds test comes first so the halfword load that follows stays inside the chunk.",
           "source": "JSONParser.swift:fusedUnicodeEscapeEnd",
           "ordering": "ordered",
           "next": [
@@ -2526,8 +2599,8 @@
         {
           "id": "quad",
           "title": "streamHexQuad",
-          "kicker": "SIMD4",
-          "detail": "Four bytes at once: the digit range and the letter range tested in parallel, the nibbles selected by mask, then weighted by 0x1000/0x100/0x10/1 and summed. One rejection test covers all four digits.",
+          "kicker": "one 32-bit register",
+          "detail": "Four digits in a general-purpose register: each byte's range is tested by adding a bias that carries into its top bit at the bound, case is folded with 0x20 for the letter test only, and a nibble is the low four bits plus nine on letters, paired into place by two shifts. One rejection test covers all four digits. The SIMD4 form it replaced ended in `uminv` + `fmov` and `addv` + `fmov`, a crossing from the vector registers on every escape. Alone the SWAR form measured +0.8% raw Twitter escaped; under the run loop, +29.8% against +14.8% with SIMD4.",
           "source": "StreamScanners.swift:streamHexQuad",
           "ordering": "ordered",
           "next": [
@@ -3484,7 +3557,9 @@
           "the-number-kernel-lab-interleaving-single-pass-validation-and-where-the-cycles-are/the-third-number-path-landed",
           "design-notes-relocated-from-source-comments/typed-layer-partialsink-schemas-sinks-conversions/three-init-exactly-calls-and-what-they-actually-lowered-to",
           "design-notes-relocated-from-source-comments/typed-layer-partialsink-schemas-sinks-conversions/streameisellemireany-a-guarded-bridge-not-map",
-          "design-notes-relocated-from-source-comments/public-api/extensible-fast-decimal-conversion"
+          "design-notes-relocated-from-source-comments/public-api/extensible-fast-decimal-conversion",
+          "landed-typed-array-numbers-and-simd-lanes-finish-in-a-frameless-partialsink-number",
+          "landed-typed-array-numbers-and-simd-lanes-finish-in-a-frameless-partialsink-number/measured"
         ],
         "source": [
           "StreamParsingShims.h:stream_parsing_pow10_128",
@@ -3499,7 +3574,10 @@
           "EiselLemire.swift:streamPow10Product",
           "EiselLemire.swift:streamEiselLemireWide",
           "Pow10.swift:streamMaxExactPow10",
-          "Pow10.swift:streamMaxExactMagnitude"
+          "Pow10.swift:streamMaxExactMagnitude",
+          "StreamConvertible.swift:streamParseDoubleExact",
+          "StreamConvertible.swift:streamParseDoubleKernel",
+          "StreamConvertible.swift:streamParseDoubleInline"
         ],
         "asm": []
       },
@@ -3509,7 +3587,7 @@
           "id": "info",
           "title": "emitNumber already holds the inputs",
           "kicker": "no re-walk",
-          "detail": "`NumberInfo` carries the digits with the dot removed and the power of ten they are scaled by, which is exactly the form the kernel wants — so nothing re-walks the token. `streamParseFloatingPoint` reads it for any `BinaryFloatingPoint` destination, after sending a token with more than nineteen digits, whose magnitude may have wrapped, straight to the `String` fallback.",
+          "detail": "`NumberInfo` carries the digits with the dot removed and the power of ten they are scaled by, which is exactly the form the kernel wants — so nothing re-walks the token. `streamParseFloatingPoint` reads it for any `BinaryFloatingPoint` destination, after sending a token with more than nineteen digits, whose magnitude may have wrapped, straight to the `String` fallback. The sink's homogeneous routes split the same tiers: `streamParseDoubleExact` (Clinger's tier, call-free) inline in `PartialSink.number`, the rest in the outlined full paths, and a SIMD lane asks `streamParseDoubleKernel` first. `streamEiselLemire` is forced inline, so it runs in the frame of whichever outlined path calls it; as its own frame it was a third call per Canada lane.",
           "source": "StreamConvertible.swift:streamParseFloatingPoint",
           "ordering": "ordered",
           "next": [
@@ -4314,6 +4392,7 @@
       ],
       "prose": [
         "A 64-byte skipped block reduces to the brackets outside strings. String contents, escape selectors, numbers, literal letters, whitespace, commas and colons never enter the inner loop; the four bracket bytes spell open versus close and object versus array from their own bits.",
+        "The classifier loads its block with `vld4q_u8`, so each vector holds every fourth byte, and builds its five masks with `stream_parsing_movemask4_deinterleaved`: three shift-right-inserts, a fourth to copy the nibble, and `shrn`. Only bit 7 of a lane is read, so the bracket class needs no test. The kernel alone: Twitter 8.56 → 7.61 ns a block, CITM 8.03 → 6.75; typed Twitter +2.7%. The skip loop advances by 64 whatever the masks say, so the load's extra latency is hidden here; the structural walk waits on `starts`, and its classifier keeps plain loads.",
         "Quote parity and odd-backslash state carry across accepted blocks. At a handoff they become `.skippingString` or `.skippingEscape`, so the scalar edge resumes at the same byte and with the same validation obligations. Non-ASCII validation is deferred across adjacent blocks, then settled at an all-ASCII block or before the close/error that would overtake it.",
         "The function is forced out of line. Inlining its classifier hoists tables and splats into callee-saved vector registers, enlarging the scalar skip function's prologue; that measured 5.1% slower on byte-fed escaped Twitter, which can never execute a whole block."
       ],
@@ -4321,12 +4400,15 @@
         "doc": [
           "stage-5-container-dispositions-skipped-subtrees-run-at-structural-speed",
           "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/the-skip-block-scanner",
-          "design-notes-relocated-from-source-comments/scanners-and-c-shims-streamscanners-swift-streamparsingshims/find_escaped-stays-scalar"
+          "design-notes-relocated-from-source-comments/scanners-and-c-shims-streamscanners-swift-streamparsingshims/find_escaped-stays-scalar",
+          "landed-the-skip-classifier-s-masks-from-a-deinterleaved-load",
+          "landed-the-skip-classifier-s-masks-from-a-deinterleaved-load/measured-the-gate"
         ],
         "source": [
           "JSONParserSkip.swift:consumeSkipBlocks",
           "StreamParsingShims.h:stream_parsing_classify_skip_block",
-          "JSONParserSkip.swift:consumeSkipRun"
+          "JSONParserSkip.swift:consumeSkipRun",
+          "StreamParsingShims.h:stream_parsing_movemask4_deinterleaved"
         ],
         "asm": [
           "JSONParser.consumeSkipBlocks"
@@ -4352,8 +4434,8 @@
         {
           "id": "classify",
           "title": "classify 64 skipped bytes",
-          "kicker": "brackets + 2 carries",
-          "detail": "The C kernel removes escaped quotes, prefix-XORs the remaining quote mask, and returns only brackets outside the resulting string regions, plus `in_string`, `ends_odd`, non-ASCII and scalar-decline flags. On x86 the same walk runs on the AVX2 twin when the CPU has it.",
+          "kicker": "vld4, brackets + 2 carries",
+          "detail": "The C kernel removes escaped quotes, prefix-XORs the remaining quote mask, and returns only brackets outside the resulting string regions, plus `in_string`, `ends_odd`, non-ASCII and scalar-decline flags. On x86 the same walk runs on the AVX2 twin when the CPU has it. The masks come from a deinterleaved load (`vld4q_u8` + `stream_parsing_movemask4_deinterleaved`): five vector instructions a mask against `movemask4`'s seven, and the accepted test is one `cmtst`.",
           "source": "StreamParsingShims.h:stream_parsing_classify_skip_block",
           "ordering": "ordered",
           "next": [
@@ -4473,14 +4555,17 @@
           "landed-container-members-open-with-one-copy-and-no-closure-retain",
           "landed-container-members-open-with-one-copy-and-no-closure-retain/measured",
           "landed-container-members-open-with-one-copy-and-no-closure-retain/rejected-a-48-byte-copy-threshold",
-          "landed-container-members-open-with-one-copy-and-no-closure-retain/measured-the-full-gate"
+          "landed-container-members-open-with-one-copy-and-no-closure-retain/measured-the-full-gate",
+          "landed-a-frameless-partialsink-key-string-opens-constructed-in-place-mid-size-template-copies-through-one-witness-call",
+          "landed-a-frameless-partialsink-key-string-opens-constructed-in-place-mid-size-template-copies-through-one-witness-call/rejected-an-unspecialised-initialize-to-helper"
         ],
         "source": [
           "StreamSchema.swift:StreamSchema",
           "StreamCopyInitialize.swift:_streamCopyInitialize",
           "StreamEmptyObject.swift:StreamEmptyObject",
           "StreamSchemaCache.swift:StreamSchemaCache",
-          "StreamCopyInitialize.swift:_streamCopyInitializeSome"
+          "StreamCopyInitialize.swift:_streamCopyInitializeSome",
+          "StreamCopyInitialize.swift:_streamCopyOut"
         ],
         "asm": []
       },
@@ -4518,7 +4603,7 @@
           "id": "template",
           "title": "one template per schema",
           "kicker": "a pointer, not a closure",
-          "detail": "An element's initial value is allocated once per schema at a stable address and leaked on purpose — the schema that captures it is immortal — so opening an element is a copy from that address straight into its slot, and the closure's only capture is the pointer. Building the value inside the closure instead re-entered the runtime's locking metadata cache per open for a generic element, and returning it by value staged it in a temporary: a second whole-element copy, which for a partial of a few kilobytes is worth measuring. The copy is spelled two ways because neither is right for every size — `initialize(to:)` up to 128 bytes, since the counted form is `swift_arrayInitWithCopy`, a runtime detour worth 7% on a document of thousands of small elements (at 48 bytes CITM's 60–92 byte elements lost 4%); `initialize(from:count:)` above it, since the single-value form stages anything loadable on the stack — past a few refcounted fields, two `memcpy`s and a value-witness copy into a dead temporary. The threshold folds per type (was 1 KB; typed CITM +24.8% with the two changes below). An optional template copies its payload through the payload's own witness plus its tag bytes (`_streamCopyInitializeSome`), and `StreamArray` and `StreamDictionary` are constructed rather than copied, since a bound generic struct's copy is its witness walking the fields through metadata.",
+          "detail": "An element's initial value is allocated once per schema at a stable address and leaked on purpose — the schema that captures it is immortal — so opening an element is a copy from that address straight into its slot, and the closure's only capture is the pointer. Building the value inside the closure instead re-entered the runtime's locking metadata cache per open for a generic element, and returning it by value staged it in a temporary: a second whole-element copy, which for a partial of a few kilobytes is worth measuring. The copy is spelled three ways because none is right for every size. Up to 128 bytes, `initialize(to:)`, since the counted form is `swift_arrayInitWithCopy`, a runtime detour worth 7% on a document of thousands of small elements (at 48 bytes CITM's 60–92 byte elements lost 4%). From 128 to 1024 bytes, `_streamCopyOut`: an unspecialised function that is one tail call into the type's `initializeWithCopy` witness, then one `memcpy` into the slot, since the single-value form stages anything loadable on the stack (past a few refcounted fields, two `memcpy`s and a witness copy into a dead temporary) and the runtime path asks the metadata for its type descriptor first. Above 1024 bytes, `initialize(from:count:)`: there the extra `memcpy` costs more than those checks (Twitter full -3.8% uncapped). The thresholds fold per type; Embedded Swift keeps the runtime path above 128. An optional template copies its payload through the payload's own witness plus its tag bytes (`_streamCopyInitializeSome`), and `StreamArray` and `StreamDictionary` are constructed rather than copied, since a bound generic struct's copy is its witness walking the fields through metadata.",
           "source": "StreamCopyInitialize.swift:_streamCopyInitialize",
           "next": []
         },
@@ -4626,13 +4711,17 @@
           "design-decisions/macro-generated-code",
           "landed-container-members-open-with-one-copy-and-no-closure-retain",
           "landed-whole-table-strings-copied-without-memmove-long-key-tails-compared-by-word",
-          "landed-whole-table-strings-copied-without-memmove-long-key-tails-compared-by-word/rejected-streamfieldtailmatches-inlined"
+          "landed-whole-table-strings-copied-without-memmove-long-key-tails-compared-by-word/rejected-streamfieldtailmatches-inlined",
+          "landed-a-frameless-partialsink-key-string-opens-constructed-in-place-mid-size-template-copies-through-one-witness-call",
+          "landed-a-frameless-partialsink-key-string-opens-constructed-in-place-mid-size-template-copies-through-one-witness-call/rejected-key-with-a-frame-or-inlined-into-the-walk"
         ],
         "source": [
           "StreamFieldTable.swift:StreamFieldTable",
           "StreamFieldTable.swift:streamFieldTailMatches",
           "StreamTemplateStorage.swift:_StreamFieldPrepareBox",
-          "StreamFieldTable.swift:_streamOptionalPrepare"
+          "StreamFieldTable.swift:_streamOptionalPrepare",
+          "PartialSink.swift:matchTableKey",
+          "PartialSink.swift:matchTableKeyTail"
         ],
         "asm": [
           "streamFieldTailMatches"
@@ -4688,8 +4777,8 @@
           "id": "scan",
           "title": "compare keyWord and keyLength",
           "kicker": "40-byte stride",
-          "detail": "Forty-byte strides, walked linearly. The generated `switch` this replaced was the same compares as a chain.",
-          "source": "StreamFieldTable.swift:StreamFieldTable",
+          "detail": "Forty-byte strides, walked linearly. The generated `switch` this replaced was the same compares as a chain. `PartialSink.key`'s copy of the scan (`matchTableKey`) stops at the first entry whose first word and length match: a key of at most a word is stored there, a longer one tail-calls `matchTableKeyTail`. Nothing in the scan is a call, so `key` keeps no frame; with the tail compare called from inside the loop, nine values lived across it and `key` saved six register pairs per key.",
+          "source": "PartialSink.swift:matchTableKey",
           "next": [
             {
               "to": "verify",
@@ -4714,10 +4803,10 @@
         },
         {
           "id": "verify",
-          "title": "streamFieldTailMatches",
+          "title": "the tail compare",
           "kicker": "words, no byte loop",
-          "detail": "Identical for both: the difference is how the candidate was found, not how it is confirmed. Keys of eight bytes or fewer skip this entirely. A longer key is compared in 8-byte words from byte 8, and the last word read ends exactly at the key's end, overlapping what came before, so there is no byte loop and no read past either key. Outlined on purpose: inlined, `PartialSink.key` saved half as many registers, but the linear scan became a call and typed Twitter fell 5–6%.",
-          "source": "StreamFieldTable.swift:streamFieldTailMatches",
+          "detail": "Identical for both: the difference is how the candidate was found, not how it is confirmed. Keys of eight bytes or fewer skip this entirely. A longer key is compared in 8-byte words from byte 8, and the last word read ends exactly at the key's end, overlapping what came before, so there is no byte loop and no read past either key. In the sink it runs in `matchTableKeyTail`, a leaf entered by a tail call once the scan has a candidate, with the compare inline; `streamFieldTailMatches` is the outlined copy `streamMatchField` and the indexed match call. Inlining that copy into the scan was measured: `key` saved half as many registers, but the linear scan became a call and typed Twitter fell 5–6%.",
+          "source": "PartialSink.swift:matchTableKeyTail",
           "next": [
             {
               "to": "route",
@@ -4748,7 +4837,8 @@
       ],
       "prose": [
         "The typed layer's sink: it keeps a spine of frames, each pointing into the partially built value, and turns tokens into stores. A container entry is now the frame itself — bits rather than references — and scalars whose kind is known at schema-build time are stored directly instead of going through a general applier.",
-        "Six codegen traps are recorded against this file. Among them: a struct nested inside the generic sink lowers to a value-witness destroy; `init(rawValue:)` on a decoded enum is not free; and a `count <= 8` branch causes the scan behind it to unroll."
+        "Six codegen traps are recorded against this file. Among them: a struct nested inside the generic sink lowers to a value-witness destroy; `init(rawValue:)` on a decoded enum is not free; and a `count <= 8` branch causes the scan behind it to unroll.",
+        "`key` and `number` keep no frame. `key`'s table scan makes no call, and its other arms are tail calls; it is `@inline(never)` because at that size the block walk inlined it and typed Twitter, GitHub and Qwen structured lost 2.0–3.7%. `number` finishes `[Double]` / `[Int]` elements and SIMD lanes with no call when the token converts exactly and the slot is ready, and tail-calls an outlined full path otherwise; a SIMD element opens in `beginArray` and closes in `endArray` the same way. Typed Canada +12.2%, Mesh +5.9%, Qwen structured +4.3%."
       ],
       "evidence": {
         "doc": [
@@ -4760,14 +4850,29 @@
           "the-small-payload-fixed-cost-three-arc-leaks-leave-the-typed-layer",
           "design-notes-relocated-from-source-comments/typed-layer-partialsink-schemas-sinks-conversions/partialsink-s-frame-stack-a-fixed-allocation-two-slots-of-headroom-and-the-overflow-frame",
           "design-notes-relocated-from-source-comments/typed-layer-partialsink-schemas-sinks-conversions/the-simd-lane-store-bypasses-the-known-slot-resolution",
-          "landed-the-sink-s-array-appends-prove-the-tail-unique-once-per-parse-call"
+          "landed-the-sink-s-array-appends-prove-the-tail-unique-once-per-parse-call",
+          "landed-a-frameless-partialsink-key-string-opens-constructed-in-place-mid-size-template-copies-through-one-witness-call/measured",
+          "landed-a-frameless-partialsink-key-string-opens-constructed-in-place-mid-size-template-copies-through-one-witness-call/measured-the-gate",
+          "landed-typed-array-numbers-and-simd-lanes-finish-in-a-frameless-partialsink-number",
+          "landed-typed-array-numbers-and-simd-lanes-finish-in-a-frameless-partialsink-number/measured",
+          "landed-typed-array-numbers-and-simd-lanes-finish-in-a-frameless-partialsink-number/rejected-one-count-store-in-streamarray-advance",
+          "landed-typed-array-numbers-and-simd-lanes-finish-in-a-frameless-partialsink-number/measured-the-gate"
         ],
         "source": [
           "PartialSink.swift:PartialSink",
           "StreamFrameEntry.swift:_streamMemberAddress",
-          "StreamParseable.swift:StreamParseable"
+          "StreamParseable.swift:StreamParseable",
+          "PartialSink.swift:key",
+          "PartialSink.swift:number",
+          "PartialSink.swift:numberRouted",
+          "PartialSink.swift:storeSIMDDoubleLaneByKernel",
+          "PartialSink.swift:openSIMDDoubleElementIfReady",
+          "PartialSink.swift:endArray"
         ],
-        "asm": []
+        "asm": [
+          "PartialSink.key",
+          "PartialSink.number"
+        ]
       },
       "next": [
         {
@@ -4805,6 +4910,26 @@
               "kind": "branch",
               "label": "the container closes",
               "when": "Popped exactly once, including for a subtree the sink asked to skip — the ignored frame is pushed anyway, because the disposition is advisory."
+            },
+            {
+              "to": "homog",
+              "kind": "branch",
+              "label": "a number in an array or a SIMD element",
+              "when": "The frame's route word says `[Double]`, `[Int]` or a `SIMD2/3/4<Double>` lane, so there is no key and the value goes straight to the next slot."
+            }
+          ]
+        },
+        {
+          "id": "homog",
+          "title": "number(_:info:), frameless",
+          "kicker": "no call on a hit",
+          "detail": "The three homogeneous routes finish here when the token converts on the exact tier and the slot is ready — `appendClosedIfReady` (no open element, room in a tail already proved unique) or a lane inside the arity — so `number` saves no registers (it saved twelve, in 342 instructions). Every miss tail-calls the outlined full path, the typed slots `applyKnownNumber`, and object and closure routes `numberRouted`. A lane goes to `storeSIMDDoubleLaneByKernel`, which asks Eisel–Lemire first: 91% of Canada's coordinates need it, and Clinger's `<= 2^53` test in front mispredicted on the 9% that do not (Canada +6.7%, Mesh -0.8%). A non-optional SIMD element opens in `beginArray` with the frame pushed inline (`openSIMDDoubleElementIfReady`) and its frame closes in `endArray` with the arity from the route word, both without a call.",
+          "source": "PartialSink.swift:number",
+          "next": [
+            {
+              "to": "pop",
+              "kind": "step",
+              "label": "the element's `]`"
             }
           ]
         },
@@ -4819,9 +4944,9 @@
         {
           "id": "key",
           "title": "key(_:)",
-          "kicker": "one load, one switch",
-          "detail": "Read through the frame each time rather than bound to a local: a local outlives the call it is passed to, so the optimizer has to keep the schema alive across it — a retain, and it cost one per entry on the dictionary path. Read in place it is a borrow and the loads fold.",
-          "source": "PartialSink.swift:PartialSink",
+          "kicker": "frameless, one switch",
+          "detail": "One load and one switch over the schema's key dispatch. The table arm's scan makes no call, and the dictionary and closure arms are tail calls, so `key` saves no registers on any arm (116 instructions, from 236 with six pairs saved). `@inline(never)` on purpose: frameless, it was small enough that `consumeStructuralBlocks<PartialSink>` inlined it and grew 1383 → 1550 instructions, which cost typed Twitter, GitHub and Qwen structured 2.0–3.7%. The frame is read through each time rather than bound to a local: a local outlives the call it is passed to, so the optimizer has to keep the schema alive across it — a retain, and it cost one per entry on the dictionary path.",
+          "source": "PartialSink.swift:key",
           "ordering": "ordered",
           "next": [
             {
@@ -5142,7 +5267,9 @@
           "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock/streamdictionary-slot-is-force-inlined-to-avoid-staging-self",
           "design-notes-relocated-from-source-comments/scanners-and-c-shims-streamscanners-swift-streamparsingshims/streamhashbytes-fnv-s-shape-not-its-arithmetic",
           "landed-the-sink-s-array-appends-prove-the-tail-unique-once-per-parse-call",
-          "landed-the-sink-s-array-appends-prove-the-tail-unique-once-per-parse-call/measured"
+          "landed-the-sink-s-array-appends-prove-the-tail-unique-once-per-parse-call/measured",
+          "landed-a-frameless-partialsink-key-string-opens-constructed-in-place-mid-size-template-copies-through-one-witness-call",
+          "landed-typed-array-numbers-and-simd-lanes-finish-in-a-frameless-partialsink-number"
         ],
         "source": [
           "StreamArray.swift:StreamArray",
@@ -5155,7 +5282,9 @@
           "StreamDictionary.swift:_openValue",
           "StreamArray.swift:nextSlot",
           "StreamArray.swift:copySharedTail",
-          "PartialSink.swift:commit"
+          "PartialSink.swift:commit",
+          "StreamArray.swift:appendClosedIfReady",
+          "StreamArray.swift:openElementIfReady"
         ],
         "asm": []
       },
@@ -5173,7 +5302,7 @@
           "id": "open",
           "title": "the open element lives outside the storage",
           "kicker": "pending",
-          "detail": "`pending` is held inline, so the parser's frame points at a slot no other value can see and its address survives every append — and a plain copy of the value diverges it for free, with no allocation and no bookkeeping, which is the whole reason a snapshot is a struct copy. The schema opens the next element with `_openElement(copying:)`: the closed element moves into its slot and the schema's template is copied into the space it vacated, two whole-element copies with the optional's tag left alone. A whole number token skips the round trip through `_appendClosed`. Opening the element in the storage instead was built and measured: it bought a third on the largest partials and cost 59–72% on every row that *keeps* a snapshot, because the divergence then has to be bought back with a heap block per retained snapshot.",
+          "detail": "`pending` is held inline, so the parser's frame points at a slot no other value can see and its address survives every append — and a plain copy of the value diverges it for free, with no allocation and no bookkeeping, which is the whole reason a snapshot is a struct copy. The schema opens the next element with `_openElement(copying:)`: the closed element moves into its slot and the schema's template is copied into the space it vacated, two whole-element copies with the optional's tag left alone. A whole number token skips the round trip through `_appendClosed`. Opening the element in the storage instead was built and measured: it bought a third on the largest partials and cost 59–72% on every row that *keeps* a snapshot, because the divergence then has to be bought back with a heap block per retained snapshot. `StreamString` elements and dictionary string values open with `_openElement(constructing:)` and `_openValue(forKey:constructingSome:)`, which initialise the vacated space: assigning over the drained `nil` destroyed it out of line through the optional's metadata on every element.",
           "source": "StreamArray.swift:StreamArray",
           "ordering": "unordered",
           "next": [
@@ -5195,7 +5324,7 @@
           "id": "array",
           "title": "commit into the filling block",
           "kicker": "unique first, then write",
-          "detail": "Closed elements live in uniform power-of-two blocks. A sealed one is never written again, so sharing it is free and a snapshot keeps the elements it already holds for the price of a retain. The filling block is the one that can still be written, and `nextSlot` makes it unique before it returns an address — the check happening before the tail is bound to a local reference, since binding first makes the check answer about the reference it just created. That check used to be absent: each array held its *own* count of the elements in the filling block, the parser appended above the prefix every sharer had captured, and the copy was argued away. Two copies of one array compute the same next slot, so the argument was wrong — `[1]` copied, then `2` appended to one and `3` to the other, reads back `[1, 3]` — and no serial fix covers two threads doing it. The check costs 9–13% on the collection rows that keep nothing at all, where no tail is ever actually copied, and one detached block per retained snapshot on the rows that keep everything. Since then the test is inline in `nextSlot` and only the copy is out of line (`copySharedTail`), and `PartialSink` remembers the address of a tail it has proved unique during the current parse call, so its number and fixed-width element appends skip the runtime call on a hit; `commit()` at the end of every call, `reset()` and the return from a field hook forget it. Typed Mesh +14.7%. The power is chosen per element type: 32 by default, but a trivial element of at most sixteen bytes aims at 2 KB instead (256 `Double`s), because at 32 `prepareSlot` was 4% of typed Mesh and such a block has no destroy loop to outweigh the allocations saved. A power of two means the sealed count is `blocks.count << shift` and needs no stored field.",
+          "detail": "Closed elements live in uniform power-of-two blocks. A sealed one is never written again, so sharing it is free and a snapshot keeps the elements it already holds for the price of a retain. The filling block is the one that can still be written, and `nextSlot` makes it unique before it returns an address — the check happening before the tail is bound to a local reference, since binding first makes the check answer about the reference it just created. That check used to be absent: each array held its *own* count of the elements in the filling block, the parser appended above the prefix every sharer had captured, and the copy was argued away. Two copies of one array compute the same next slot, so the argument was wrong — `[1]` copied, then `2` appended to one and `3` to the other, reads back `[1, 3]` — and no serial fix covers two threads doing it. The check costs 9–13% on the collection rows that keep nothing at all, where no tail is ever actually copied, and one detached block per retained snapshot on the rows that keep everything. Since then the test is inline in `nextSlot` and only the copy is out of line (`copySharedTail`), and `PartialSink` remembers the address of a tail it has proved unique during the current parse call, so its number and fixed-width element appends skip the runtime call on a hit; `commit()` at the end of every call, `reset()` and the return from a field hook forget it. Typed Mesh +14.7%. The power is chosen per element type: 32 by default, but a trivial element of at most sixteen bytes aims at 2 KB instead (256 `Double`s), because at 32 `prepareSlot` was 4% of typed Mesh and such a block has no destroy loop to outweigh the allocations saved. A power of two means the sealed count is `blocks.count << shift` and needs no stored field. `appendClosedIfReady` and `openElementIfReady` do the append or the open only when nothing needs a call — no open element to drain, or room in a tail already proved unique — and otherwise return with nothing written, so `PartialSink.number` and the SIMD element open keep no frame.",
           "source": "StreamArray.swift:StreamArray",
           "next": [
             {

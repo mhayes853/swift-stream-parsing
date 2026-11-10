@@ -151,7 +151,9 @@
         "FloatConversionDifferentialTests.swift:Float reaches the Eisel-Lemire kernel rather than the string fallback",
         "EiselLemireTests.swift:Random significands and exponents across the whole table are bit exact",
         "ShortIntegerKernelTests.swift:The kernel agrees with the scalar walk on every length and prefix",
-        "Pow10TableTests.swift:Every Entry Is The Correctly Rounded Power Of Ten"
+        "Pow10TableTests.swift:Every Entry Is The Correctly Rounded Power Of Ten",
+        "DoubleConversionDifferentialTests.swift:Random decimals convert exactly as Double(String) does",
+        "HomogeneousNumberRouteTests.swift:Elements and lanes hold what the standard library parses"
       ],
       "showcase": "DoubleConversionDifferentialTests.swift:Edge case tokens convert exactly as Double(String) does",
       "node": ["number-scan", "short-integer", "eisel-lemire"]
@@ -170,7 +172,8 @@
         "UTF8ValidationTests.swift:Three and four byte leads against every second byte",
         "UTF8ValidationTests.swift:Valid text at every length and one byte corrupted at every position",
         "UTF8ValidationTests.swift:Random byte strings",
-        "LookupTableTests.swift:Sequence Length Agrees With The Compare Ladder On Every Byte"
+        "LookupTableTests.swift:Sequence Length Agrees With The Compare Ladder On Every Byte",
+        "EscapedTailBlockTests.swift:The kernel's UTF-8 tables are the validator's"
       ],
       "showcase": "UTF8ValidationTests.swift:Three and four byte leads against every second byte",
       "node": ["utf8"]
@@ -194,7 +197,12 @@
         "SkipBlockScanTests.swift:Block and scalar skips agree at every alignment",
         "NumberSeparatorFusionTests.swift:Long arrays agree whether or not the block walk is signalled",
         "CoalescedStringChunkTests.swift:Staged runs agree with the byte fed parse at every buffer seam",
-        "StreamScannerTests.swift:String run scanning reports end and UTF-8 observation at every length and offset"
+        "StreamScannerTests.swift:String run scanning reports end and UTF-8 observation at every length and offset",
+        "StructuralBlockWalkTests.swift:A string crossing a block edge agrees wherever its bytes fall",
+        "BlockClassifierTests.swift:Every byte value at every position classifies as documented",
+        "EscapedTailBlockTests.swift:Long runs of three-byte unicode escapes agree at every buffer and chunk size",
+        "CoalescedStringChunkTests.swift:A unicode escape run cut at every offset agrees with the byte fed parse",
+        "LookupTableTests.swift:Hex Quad Agrees With A Per Character Decode On Every Byte In Every Lane"
       ],
       "showcase": "StructuralBlockWalkTests.swift:The block walk and the scalar ladder agree at every alignment",
       "node": ["structural-blocks", "skip-blocks", "number-run", "escapes", "string-run"]
@@ -214,7 +222,8 @@
         "StreamArrayTests.swift:A Copy Taken While An Element Is Open Is Not Written Through",
         "StreamArrayTests.swift:Every Snapshot Kept While Parsing Stays Right",
         "StreamViewTests.swift:A container read from a view does not change afterwards",
-        "StreamCollectionCopyOnWriteTests.swift:mutatingASnapshotDoesNotChangeTheContinuingParser"
+        "StreamCollectionCopyOnWriteTests.swift:mutatingASnapshotDoesNotChangeTheContinuingParser",
+        "SinkTailUniquenessTests.swift:Snapshots of number arrays stay isolated at every cut"
       ],
       "showcase": "SnapshotStabilityTests.swift:Array states stay stable",
       "node": ["views", "collections", "partial-sink"]
