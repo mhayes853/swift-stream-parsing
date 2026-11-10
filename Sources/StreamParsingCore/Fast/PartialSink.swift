@@ -999,12 +999,15 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   ) -> UnsafeMutableRawPointer? {
     guard let top = self.topFrame else { return nil }
     switch route {
+    // Constructed in the space the closed element vacates. `_openElement(_:)` re-marked the box
+    // `nil` and then assigned over it, destroying that `nil` out of line through the optional's
+    // metadata on every element.
     case .arrayStreamString:
       return top.pointee.storage.assumingMemoryBound(to: StreamArray<StreamString>.self)
-        .pointee._openElement(StreamString())
+        .pointee._openElement(constructing: StreamString())
     case .arrayOptionalStreamString:
       return top.pointee.storage.assumingMemoryBound(to: StreamArray<StreamString?>.self)
-        .pointee._openElement(.some(StreamString()))
+        .pointee._openElement(constructing: .some(StreamString()))
     case .dictionaryStreamString:
       guard let pending = self.pendingDictionaryStorage else { return nil }
       self.pendingDictionaryStorage = nil
@@ -1082,12 +1085,14 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     forKey key: Span<UInt8>
   ) -> UnsafeMutableRawPointer {
     switch route {
+    // Initialised over the `nil` the drain leaves, as `_openElement(constructing:)` does for an
+    // element: assigning destroyed that `nil` out of line through the optional's metadata.
     case .dictionaryStreamString:
       return storage.assumingMemoryBound(to: StreamDictionary<StreamString>.self).pointee
-        ._openValue(forKey: key, initial: StreamString())
+        ._openValue(forKey: key, constructingSome: .some(StreamString()))
     case .dictionaryOptionalStreamString:
       return storage.assumingMemoryBound(to: StreamDictionary<StreamString?>.self).pointee
-        ._openValue(forKey: key, initial: .some(StreamString()))
+        ._openValue(forKey: key, constructingSome: .some(.some(StreamString())))
     case .dictionaryBool:
       return storage.assumingMemoryBound(to: StreamDictionary<Bool>.self).pointee
         ._openValue(forKey: key, initial: false)
