@@ -137,6 +137,138 @@ stream_parsing_utf8_block_errors(stream_parsing_u8x16 current_block,
   return (stream_parsing_u8x16)veorq_u8(special, must_continue);
 }
 
+// The block kernel for a block with nothing before it: the three "previous byte" views are the
+// block itself shifted in from a zero vector (`ext`), so lanes ahead of the block read as ASCII --
+// the same thing a zero-padded scratch said, without the bytes going through memory.
+STREAM_PARSING_SIMD_SHIM uint8x16_t
+stream_parsing_utf8_first_block_errors(uint8x16_t current, uint8x16_t previous_high_table,
+                                       uint8x16_t previous_low_table,
+                                       uint8x16_t current_high_table) {
+  const uint8x16_t zero = vdupq_n_u8(0);
+  return (uint8x16_t)stream_parsing_utf8_block_errors(
+      (stream_parsing_u8x16)current, (stream_parsing_u8x16)vextq_u8(zero, current, 15),
+      (stream_parsing_u8x16)vextq_u8(zero, current, 14),
+      (stream_parsing_u8x16)vextq_u8(zero, current, 13),
+      (stream_parsing_u8x16)previous_high_table, (stream_parsing_u8x16)previous_low_table,
+      (stream_parsing_u8x16)current_high_table);
+}
+
+// The bytes `s[0, n)`, 0 < n < 16, in the low lanes of a vector with every other lane zero, read
+// without touching a byte outside them: two overlapping 8-byte loads, two 4-byte loads, or the
+// first, middle and last byte. Only a run that sits within the first sixteen bytes of its buffer
+// comes here (see `stream_parsing_utf8_validate_neon`), so the size-class branches stay cold.
+STREAM_PARSING_SIMD_SHIM uint8x16_t
+stream_parsing_load_short_u8(const uint8_t *s, ptrdiff_t n) {
+  uint64_t low;
+  uint64_t high = 0;
+  if (n >= 8) {
+    uint64_t last;
+    __builtin_memcpy(&low, s, 8);
+    __builtin_memcpy(&last, s + n - 8, 8);
+    // `last` holds s[n-8, n); s[8 + j] is its lane 16 - n + j.
+    if (n > 8) high = last >> (8 * (16 - n));
+  } else if (n >= 4) {
+    uint32_t first4, last4;
+    __builtin_memcpy(&first4, s, 4);
+    __builtin_memcpy(&last4, s + n - 4, 4);
+    // The two words overlap on the lanes both hold, where they hold the same byte.
+    low = (uint64_t)first4 | ((uint64_t)last4 << (8 * (n - 4)));
+  } else {
+    low = (uint64_t)s[0] | ((uint64_t)s[n >> 1] << (8 * (n >> 1))) |
+          ((uint64_t)s[n - 1] << (8 * (n - 1)));
+  }
+  return vreinterpretq_u8_u64(vcombine_u64(vcreate_u64(low), vcreate_u64(high)));
+}
+
+// The arm64 validator's whole run loop: 1 when `[from, to)` is well formed UTF-8 in full, 0 when
+// not. Nothing before `from` is part of a sequence and no sequence may run past `to`.
+//
+// Contract on memory: every byte in `[0, to)` of `base` is readable, and nothing past `to` is read.
+// Every caller passes the start of the chunk, of the parser's own buffer, or of the one-byte
+// `parse(byte:)` scalar as `base`, so this holds at all of them.
+//
+// No byte goes through memory. The first block's "previous byte" views come from `ext` against
+// zero; a run shorter than a block is the sixteen bytes ending at `to` with the lanes before `from`
+// cleared; the tail is the sixteen bytes ending at `to` again, overlapping bytes already checked,
+// which is harmless because each lane's views are still the bytes truly before it. Measured
+// against a 32-byte zero-padded stack scratch, which compiled to `memcpy` calls whose byte stores
+// then fed 16-byte reloads, spilled four vector registers around the calls, and armed the stack
+// protector.
+STREAM_PARSING_SIMD_SHIM int
+stream_parsing_utf8_validate_neon(const void *base_pointer, ptrdiff_t from, ptrdiff_t to,
+                                  stream_parsing_u8x16 previous_high_table_vector,
+                                  stream_parsing_u8x16 previous_low_table_vector,
+                                  stream_parsing_u8x16 current_high_table_vector) {
+  const uint8_t *p = (const uint8_t *)base_pointer;
+  const uint8x16_t ph = (uint8x16_t)previous_high_table_vector;
+  const uint8x16_t pl = (uint8x16_t)previous_low_table_vector;
+  const uint8x16_t ch = (uint8x16_t)current_high_table_vector;
+  ptrdiff_t count = to - from;
+  if (count <= 0) return 1;
+  // A sequence cut by the end of the run. The block test sees the lead and never the missing
+  // continuation, so the last three bytes are checked against what may legally sit there.
+  if (p[to - 1] >= 0xC0) return 0;
+  if (count >= 2 && p[to - 2] >= 0xE0) return 0;
+  if (count >= 3 && p[to - 3] >= 0xF0) return 0;
+
+  uint8x16_t errors;
+  if (count < 16) {
+    uint8x16_t block;
+    if (to >= 16) {
+      // The sixteen bytes ending at `to`, the lanes ahead of `from` cleared to read as ASCII.
+      const uint8x16_t lane = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+      block = vandq_u8(vld1q_u8(p + to - 16), vcgeq_u8(lane, vdupq_n_u8((uint8_t)(16 - count))));
+    } else {
+      // Fewer than sixteen bytes exist before `to` at all: assemble the run in the low lanes. The
+      // zero lanes after it are ASCII, and the end check above has cleared every lead there.
+      block = stream_parsing_load_short_u8(p + from, count);
+    }
+    errors = stream_parsing_utf8_first_block_errors(block, ph, pl, ch);
+  } else {
+    const uint8x16_t first = vld1q_u8(p + from);
+    errors = stream_parsing_utf8_first_block_errors(first, ph, pl, ch);
+    ptrdiff_t i = from + 16;
+    // Every block ORs into one accumulator and the run pays one reduction at the end: the
+    // validator answers only valid or not. The views are overlapping loads, all at or after `from`.
+    for (; i + 16 <= to; i += 16) {
+      const uint8_t *q = p + i;
+      errors = vorrq_u8(errors, (uint8x16_t)stream_parsing_utf8_block_errors(
+                                    (stream_parsing_u8x16)vld1q_u8(q),
+                                    (stream_parsing_u8x16)vld1q_u8(q - 1),
+                                    (stream_parsing_u8x16)vld1q_u8(q - 2),
+                                    (stream_parsing_u8x16)vld1q_u8(q - 3),
+                                    previous_high_table_vector, previous_low_table_vector,
+                                    current_high_table_vector));
+    }
+    if (i < to) {
+      // The sixteen bytes ending at `to`. Its views are loads too, except where they would reach
+      // ahead of `from`: only a 17- or 18-byte run, whose tail starts one or two bytes after
+      // `first`, and there they are `first` shifted in from zero.
+      const uint8_t *q = p + to - 16;
+      uint8x16_t previous2, previous3;
+      if (count >= 19) {
+        previous2 = vld1q_u8(q - 2);
+        previous3 = vld1q_u8(q - 3);
+      } else if (count == 18) {
+        previous2 = first;
+        previous3 = vextq_u8(vdupq_n_u8(0), first, 15);
+      } else {
+        previous2 = vextq_u8(vdupq_n_u8(0), first, 15);
+        previous3 = vextq_u8(vdupq_n_u8(0), first, 14);
+      }
+      errors = vorrq_u8(errors, (uint8x16_t)stream_parsing_utf8_block_errors(
+                                    (stream_parsing_u8x16)vld1q_u8(q),
+                                    (stream_parsing_u8x16)vld1q_u8(q - 1),
+                                    (stream_parsing_u8x16)previous2,
+                                    (stream_parsing_u8x16)previous3,
+                                    previous_high_table_vector, previous_low_table_vector,
+                                    current_high_table_vector));
+    }
+  }
+  const uint64x2_t words = vreinterpretq_u64_u8(errors);
+  return (vgetq_lane_u64(words, 0) | vgetq_lane_u64(words, 1)) == 0;
+}
+
 // The arm64 movemask Swift cannot spell: `vshrn_n_u16` takes an immediate, so it does not import
 // and no portable SIMD operator lowers to it. Lane n of the input lands in nibble n of the result,
 // 0xF where the byte was 0xFF. Measured: one `shrn` + `fmov` answers both "any hit" and "which

@@ -1846,6 +1846,10 @@ public struct JSONParser: ~Copyable {
     try self.validateNonASCIIRun(base: base, from: from, to: to, reportAt: reportAt)
   }
 
+  // A valid run -- every run, in a valid document -- is the inlined kernel and a return. The kernel
+  // is a leaf and the failure path one tail call, so the prologue is the frame record alone.
+  // Measured against calling `streamValidateUTF8` with the walk and throw inline (six registers
+  // saved per run): LLM +5.2% raw / +4.3% typed on top of the scratch-free kernel.
   @inlinable
   @inline(never)
   mutating func validateNonASCIIRun(
@@ -1854,7 +1858,28 @@ public struct JSONParser: ~Copyable {
     to: Int,
     reportAt: Int?
   ) throws(JSONParsingError) {
-    if streamValidateUTF8(base: base, from: from, to: to) { return }
+    if streamValidateUTF8Inline(base: base, from: from, to: to) { return }
+    try Self.failInvalidUTF8(
+      base: base, from: from, to: to, consumed: self.consumedByteCount, reportAt: reportAt
+    )
+  }
+
+  // A run the kernel rejected: the scalar walk names the byte, and the throw is here too, so the
+  // only call left in `validateNonASCIIRun` is this one, in tail position.
+  @inlinable
+  @inline(never)
+  static func failInvalidUTF8(
+    base: UnsafeRawPointer, from: Int, to: Int, consumed: Int, reportAt: Int?
+  ) throws(JSONParsingError) {
+    let at = Self.firstInvalidUTF8(base: base, from: from, to: to)
+    if at < 0 { return }
+    throw JSONParsingError(reason: .invalidUTF8, byteOffset: consumed &+ (reportAt ?? at))
+  }
+
+  // The scalar walk that names the byte a failed run fails at, or -1 if it finds none.
+  @inlinable
+  @inline(__always)
+  static func firstInvalidUTF8(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
     var i = from
     while i < to {
       let lead = base.load(fromByteOffset: i, as: UInt8.self)
@@ -1862,30 +1887,31 @@ public struct JSONParser: ~Copyable {
         i &+= 1
         continue
       }
-      guard lead >= .utf8TwoByteMinimum, lead <= .utf8MaximumLead else { throw self.error(.invalidUTF8, at: reportAt ?? i) }
+      guard lead >= .utf8TwoByteMinimum, lead <= .utf8MaximumLead else { return i }
       let needed = Self.sequenceLength(lead)
-      guard i &+ needed <= to else { throw self.error(.invalidUTF8, at: reportAt ?? i) }
+      guard i &+ needed <= to else { return i }
       for offset in 1..<needed {
         let continuation = base.load(fromByteOffset: i &+ offset, as: UInt8.self)
         guard continuation >= .utf8ContinuationFloor, continuation < .utf8TwoByteFloor else {
-          throw self.error(.invalidUTF8, at: reportAt ?? i)
+          return i
         }
       }
       let second = base.load(fromByteOffset: i &+ 1, as: UInt8.self)
       switch lead {
       case .utf8ThreeByteFloor:
-        guard second >= .utf8ThreeByteLowerBound else { throw self.error(.invalidUTF8, at: reportAt ?? i) }
+        guard second >= .utf8ThreeByteLowerBound else { return i }
       case .utf8SurrogateLead:
-        guard second <= .utf8SurrogateCeiling else { throw self.error(.invalidUTF8, at: reportAt ?? i) }
+        guard second <= .utf8SurrogateCeiling else { return i }
       case .utf8FourByteFloor:
-        guard second >= .utf8FourByteLowerBound else { throw self.error(.invalidUTF8, at: reportAt ?? i) }
+        guard second >= .utf8FourByteLowerBound else { return i }
       case .utf8MaximumLead:
-        guard second <= .utf8MaximumSecond else { throw self.error(.invalidUTF8, at: reportAt ?? i) }
+        guard second <= .utf8MaximumSecond else { return i }
       default:
         break
       }
       i &+= needed
     }
+    return -1
   }
 
   // MARK: Emission helpers

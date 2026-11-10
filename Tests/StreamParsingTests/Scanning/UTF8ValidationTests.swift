@@ -45,6 +45,78 @@ struct `UTF-8 validation tests` {
     }
   }
 
+  // The run in an allocation exactly `offset + bytes.count` long, so it ends on the allocation's
+  // last byte and a read past `to` is out of bounds (`swift test --sanitize=address` reports it).
+  // The validator may read `[0, to)` and no further. The bytes before the run are `prefix`, which
+  // a validator that took them for the run's context would trip over when they are leads.
+  private static func guarded(_ bytes: [UInt8], offset: Int, prefix: UInt8, portable: Bool) -> Bool {
+    let size = offset + bytes.count
+    let raw = UnsafeMutableRawPointer.allocate(byteCount: Swift.max(size, 1), alignment: 1)
+    defer { raw.deallocate() }
+    for index in 0..<offset { raw.storeBytes(of: prefix, toByteOffset: index, as: UInt8.self) }
+    for (index, byte) in bytes.enumerated() {
+      raw.storeBytes(of: byte, toByteOffset: offset + index, as: UInt8.self)
+    }
+    let base = UnsafeRawPointer(raw)
+    return portable
+      ? streamValidateUTF8Portable(base: base, from: offset, to: size)
+      : streamValidateUTF8(base: base, from: offset, to: size)
+  }
+
+  private static func checkGuarded(
+    _ bytes: [UInt8], offsets: ClosedRange<Int>, sourceLocation: SourceLocation = #_sourceLocation
+  ) {
+    let expected = Self.oracle(bytes)
+    for offset in offsets {
+      for prefix: UInt8 in [0x22, 0xF0, 0xE3] {
+        for portable in [false, true] {
+          let actual = Self.guarded(bytes, offset: offset, prefix: prefix, portable: portable)
+          if actual != expected {
+            Issue.record(
+              "\(portable ? "portable" : "lookup") at offset \(offset) after \(String(prefix, radix: 16)): expected \(expected) for \(bytes.map { String($0, radix: 16) })",
+              sourceLocation: sourceLocation
+            )
+            return
+          }
+        }
+      }
+    }
+  }
+
+  // Every length from 0 to 80 at every offset from 0 to 33, run ending at the allocation's end:
+  // the short run whose sixteen bytes before `to` do and do not exist, the first block, the
+  // overlapping tail at every remainder (17 and 18 bytes reach back into the first block), and
+  // several whole blocks. Each length is valid text cut there, the same with a lead at the end,
+  // with a stray continuation at the start, and with one byte corrupted in the middle.
+  @Test
+  func `Every length at every offset in an exactly sized allocation`() {
+    let text = Array("日本語のテキスト, émojis 😀🎉, Ωμέγα, עברית, plain ASCII and more 中文字符串.".utf8)
+    for length in 0...80 {
+      let slice = Array(text[..<length])
+      Self.checkGuarded(slice, offsets: 0...33)
+      if length > 0 {
+        var lead = slice
+        lead[length - 1] = 0xE3
+        Self.checkGuarded(lead, offsets: 0...33)
+        var continuation = slice
+        continuation[0] = 0x80
+        Self.checkGuarded(continuation, offsets: 0...33)
+        var corrupted = slice
+        corrupted[length / 2] = 0xFF
+        Self.checkGuarded(corrupted, offsets: 0...19)
+        let ascii = [UInt8](repeating: 0x41, count: length - 1) + [0xC3]
+        Self.checkGuarded(ascii, offsets: 0...19)
+      }
+      if length >= 2 {
+        let valid = [UInt8](repeating: 0x41, count: length - 2) + [0xC3, 0xA9]
+        Self.checkGuarded(valid, offsets: 0...19)
+        var overlong = valid
+        overlong[length - 2] = 0xC0
+        Self.checkGuarded(overlong, offsets: 0...19)
+      }
+    }
+  }
+
   @Test
   func `Every two byte sequence`() {
     for first in 0...255 {
@@ -141,6 +213,7 @@ struct `UTF-8 validation tests` {
         }
       }
       Self.check(bytes, offsets: [0, 16])
+      Self.checkGuarded(bytes, offsets: 0...1)
     }
   }
 }

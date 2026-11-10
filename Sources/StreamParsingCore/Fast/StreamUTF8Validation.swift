@@ -87,14 +87,22 @@ package func streamValidateUTF8Scalar(base: UnsafeRawPointer, from: Int, to: Int
 
 // The validator the parser calls: table lookups and overlapping loads where the platform has
 // them (see `StreamParsingShims.h`, where lane shifting was measured 10% slower and dropped).
+// Out of line by name for the tests; the parser inlines `streamValidateUTF8Inline` into its own
+// out-of-line `validateNonASCIIRun` instead, so a valid run costs one call, not two.
 @inlinable
 @inline(never)
 package func streamValidateUTF8(base: UnsafeRawPointer, from: Int, to: Int) -> Bool {
+  streamValidateUTF8Inline(base: base, from: from, to: to)
+}
+
+@inlinable
+@inline(__always)
+package func streamValidateUTF8Inline(base: UnsafeRawPointer, from: Int, to: Int) -> Bool {
   #if arch(arm64)
     return streamValidateUTF8Shimmed(base: base, from: from, to: to)
   #elseif arch(x86_64)
     // The whole run loop is in the shim: `pshufb`/`vpshufb` need a target attribute Swift cannot
-    // spell, and Clang will not inline such a function into a caller without it. This function is
+    // spell, and Clang will not inline such a function into a caller without it. Every caller is
     // `@inline(never)` and runs once per non-ASCII run, so the boundary adds no call.
     guard streamHasAVX2 else { return streamValidateUTF8Scalar(base: base, from: from, to: to) }
     return stream_parsing_utf8_validate(base, from, to) != 0
