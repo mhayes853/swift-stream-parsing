@@ -793,8 +793,56 @@ package func streamIsEightDigits(_ chunk: SIMD8<UInt8>) -> Bool {
   return unsafeBitCast(lanes, to: UInt64.self) == 0x0101_0101_0101_0101
 }
 
-// Accumulates a digit run into `magnitude`, returning the run's end. Eight-digit blocks go
-// through the SIMD conversion; the 17–19 digit run this pays for most is a document id.
+// The numerals at the start of an eight-byte word (its low bytes, in memory order), up to the
+// first byte that is not one, accumulated into `magnitude` with one multiply; returns how many.
+// `biased` and `nonDigit` are `streamDigitClass(word)`; the caller guarantees `nonDigit != 0`, so
+// the count is 0...7.
+//
+// The numerals' own lanes of the class test's subtraction are their digit values, so they are
+// shifted to the top of the word (the right alignment the eight-digit conversion wants, zeros
+// below) rather than masked; the shift is split in two so a count of zero shifts everything out
+// instead of masking to a shift of nothing.
+@inlinable
+@inline(__always)
+package func streamAccumulateLeadingDigits(
+  biased: UInt64, nonDigit: UInt64, into magnitude: inout UInt64
+) -> Int {
+  let bits = nonDigit.trailingZeroBitCount & 0x38
+  let value = streamEightDigitValue((biased &<< UInt64(truncatingIfNeeded: 63 &- bits)) &<< 1)
+  magnitude =
+    magnitude &* stream_parsing_pow10_u64(UInt32(truncatingIfNeeded: bits &>> 3)) &+ value
+  return bits &>> 3
+}
+
+// One subtraction per word: `biased` is every byte minus `'0'`, `nonDigit` has bit 7 set in the
+// first byte that is not a numeral -- exactly, because a byte below `'0'` borrows, and a lane at or
+// above `0x8A` carries, only into the bytes *above* it. Bytes above the first non-numeral may be
+// flagged spuriously, which nothing here reads.
+@inlinable
+@inline(__always)
+package func streamDigitClass(_ word: UInt64) -> (biased: UInt64, nonDigit: UInt64) {
+  let biased = word &- 0x3030_3030_3030_3030
+  return (biased, ((biased &+ 0x7676_7676_7676_7676) | biased) & 0x8080_8080_8080_8080)
+}
+
+// Eight digit values, most significant in the lowest byte, as one integer: the short integer
+// kernel's three multiply-shift stages.
+@inlinable
+@inline(__always)
+package func streamEightDigitValue(_ digits: UInt64) -> UInt64 {
+  var value = (digits &* 2561) >> 8
+  value = ((value & 0x00FF_00FF_00FF_00FF) &* 6_553_601) >> 16
+  return ((value & 0x0000_FFFF_0000_FFFF) &* 42_949_672_960_001) >> 32
+}
+
+// Accumulates a digit run into `magnitude`, returning the run's end, with no per-digit loop when
+// `to >= 8`. Each eight bytes before `to` get one SWAR class test that serves both outcomes: all
+// numerals is a full block, converted from the same subtraction; otherwise the run ends inside the
+// word and its leading numerals are the last step. With fewer than eight bytes left, the eight
+// *ending* at `to` are shifted down so the remaining bytes are the low ones (the zeros shifted in
+// end the run) -- already consumed input, as in the short integer kernel -- and only a buffer
+// shorter than eight bytes takes the byte loop. Replaces a byte loop of dependent multiplies with
+// a data-dependent exit per segment, and the SIMD block whose class test could not be reused.
 @inlinable
 @inline(__always)
 package func streamAccumulateDigits(
@@ -802,10 +850,23 @@ package func streamAccumulateDigits(
 ) -> Int {
   var index = from
   while index &+ 8 <= to {
-    let chunk = base.loadUnaligned(fromByteOffset: index, as: SIMD8<UInt8>.self)
-    guard streamIsEightDigits(chunk) else { break }
-    magnitude = magnitude &* 100_000_000 &+ streamParseEightDigits(chunk)
+    let word = UInt64(littleEndian: base.loadUnaligned(fromByteOffset: index, as: UInt64.self))
+    let (biased, nonDigit) = streamDigitClass(word)
+    guard nonDigit == 0 else {
+      return index &+ streamAccumulateLeadingDigits(
+        biased: biased, nonDigit: nonDigit, into: &magnitude)
+    }
+    magnitude = magnitude &* 100_000_000 &+ streamEightDigitValue(biased)
     index &+= 8
+  }
+  guard index < to else { return index }
+  if to >= 8 {
+    let word =
+      UInt64(littleEndian: base.loadUnaligned(fromByteOffset: to &- 8, as: UInt64.self))
+      &>> UInt64(truncatingIfNeeded: 8 &* (8 &- (to &- index)))
+    let (biased, nonDigit) = streamDigitClass(word)
+    return index &+ streamAccumulateLeadingDigits(
+      biased: biased, nonDigit: nonDigit, into: &magnitude)
   }
   while index < to {
     let digit = base.load(fromByteOffset: index, as: UInt8.self) &- .asciiZero

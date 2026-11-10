@@ -747,5 +747,16 @@ STREAM_PARSING_SIMD_SHIM const uint32_t *stream_parsing_base64_decode_tables(voi
   return stream_parsing_base64_decode_storage;
 }
 
+// 10^k as an integer for k in 0 ... 16: the fixed-extent number kernel's `integer * 10^tail`. A
+// function-local table rather than a Swift array, which would be a lazily initialised global.
+STREAM_PARSING_SIMD_SHIM uint64_t stream_parsing_pow10_u64(uint32_t k) {
+  static const uint64_t table[17] = {
+    1ULL, 10ULL, 100ULL, 1000ULL, 10000ULL, 100000ULL, 1000000ULL, 10000000ULL, 100000000ULL,
+    1000000000ULL, 10000000000ULL, 100000000000ULL, 1000000000000ULL, 10000000000000ULL,
+    100000000000000ULL, 1000000000000000ULL, 10000000000000000ULL
+  };
+  return table[k];
+}
+
 
 #endif
