@@ -494,6 +494,8 @@ public struct PartialSink: ~Copyable, StreamParseSink {
           $0.onFieldRecognized!(top.pointee.storage, _streamFieldID(field))
         }
       }
+      // The hook is caller code running on the partial mid-call, and may copy a member.
+      self.knownUniqueTail = Self.noKnownUniqueTail
     case .observedMatch:
       let field = top.pointee.withSchema { $0.matchField(bytes) }
       top.pointee.pendingField = field
@@ -502,6 +504,8 @@ public struct PartialSink: ~Copyable, StreamParseSink {
           $0.onFieldRecognized!(top.pointee.storage, _streamFieldID(field))
         }
       }
+      // The hook is caller code running on the partial mid-call, and may copy a member.
+      self.knownUniqueTail = Self.noKnownUniqueTail
     case .dictionary:
       switch self.activeLeafRoute {
       case .dictionaryStreamString, .dictionaryOptionalStreamString,
