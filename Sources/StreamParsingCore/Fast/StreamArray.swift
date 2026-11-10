@@ -781,6 +781,24 @@ extension StreamArray {
     return true
   }
 
+  // `openElement(_:knownUniqueTail:)` when it needs no call: the first open, or the open element
+  // draining into room in the tail `known` already proved unique. Otherwise nil with nothing
+  // written, and the caller takes the full open.
+  @inlinable
+  @inline(__always)
+  mutating func openElementIfReady(
+    _ initial: Element, knownUniqueTail known: UInt
+  ) -> UnsafeMutableRawPointer? {
+    if self.pending != nil {
+      guard self.tailBits == known, self.tailCount < self.tail.unsafelyUnwrapped.slotCapacity
+      else { return nil }
+      assert(isKnownUniquelyReferenced(&self.tail), "A remembered unique tail is shared")
+      self.movePending(to: self.tail.unsafelyUnwrapped.base + self.tailCount)
+    }
+    self.pending = initial
+    return withUnsafeMutablePointer(to: &self.pending) { UnsafeMutableRawPointer($0) }
+  }
+
   // `_openElement(_:)` for the sink's fixed-width element opens.
   @inlinable
   @inline(__always)

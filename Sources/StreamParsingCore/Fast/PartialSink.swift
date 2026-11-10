@@ -301,15 +301,57 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   }
 
   public mutating func beginArray() -> StreamContainerDisposition {
+    // A SIMD element of a `[SIMD2/3/4<Double>]` opens here with no call when its slot is ready, as
+    // `number` stores a lane; the full open is a tail call.
     switch self.activeLeafRoute {
-    case .arraySIMD2Double, .arraySIMD3Double, .arraySIMD4Double,
-      .arrayOptionalSIMD2Double, .arrayOptionalSIMD3Double, .arrayOptionalSIMD4Double:
-      self.openKnownSIMDDoubleElement(self.activeLeafRoute)
-      return .stream
+    case .arraySIMD2Double:
+      if self.openSIMDDoubleElementIfReady(SIMD2<Double>.self, lanes: .simd2Double) {
+        return .stream
+      }
+      return self.openKnownSIMDDoubleElement(.arraySIMD2Double)
+    case .arraySIMD3Double:
+      if self.openSIMDDoubleElementIfReady(SIMD3<Double>.self, lanes: .simd3Double) {
+        return .stream
+      }
+      return self.openKnownSIMDDoubleElement(.arraySIMD3Double)
+    case .arraySIMD4Double:
+      if self.openSIMDDoubleElementIfReady(SIMD4<Double>.self, lanes: .simd4Double) {
+        return .stream
+      }
+      return self.openKnownSIMDDoubleElement(.arraySIMD4Double)
+    case .arrayOptionalSIMD2Double, .arrayOptionalSIMD3Double, .arrayOptionalSIMD4Double:
+      return self.openKnownSIMDDoubleElement(self.activeLeafRoute)
     default:
       break
     }
     return self.enterContainer(shape: .array)
+  }
+
+  // The element open and frame push of `openKnownSIMDDoubleElement` for a non-optional element,
+  // when neither needs a call: room on the frame stack, and an element slot `openElementIfReady`
+  // can fill. The frame's schema is the array schema's element schema -- the exact SIMD schema, the
+  // only one whose route maps to this array route -- so the global's lazy accessor stays off the
+  // path. False, with nothing changed, otherwise.
+  @inline(__always)
+  private mutating func openSIMDDoubleElementIfReady<Vector: SIMD>(
+    _ type: Vector.Type, lanes route: _StreamLeafRoute
+  ) -> Bool where Vector.Scalar == Double {
+    // The route word is the top frame's, so the stack is not empty.
+    let top = self.frameEnd - 1
+    guard self.frameEnd < self.frames + Self.frameCapacity,
+      let schemaBits = top.pointee.schema.elementSchemaBits,
+      let storage = top.pointee.storage.assumingMemoryBound(to: StreamArray<Vector>.self).pointee
+        .openElementIfReady(.zero, knownUniqueTail: self.knownUniqueTail)
+    else { return false }
+    let bits = StreamRouteBits.pack(leafRoute: route, elementKind: .double, elementOptional: false)
+    var frame = BorrowedFrame(storage: storage, schemaBits: schemaBits)
+    assert(frame.schema.routeBits == bits && frame.schema.completedValue == nil)
+    frame.pendingField = 0
+    frame.routeBits = bits
+    self.frameEnd.initialize(to: frame)
+    self.frameEnd += 1
+    self.activeRouteBits = bits
+    return true
   }
 
   public mutating func endObject() {
@@ -317,6 +359,25 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   }
 
   public mutating func endArray() {
+    // A `SIMD2/3/4<Double>` lane frame (Canada's every coordinate pair): the route word says it is
+    // the top frame, so nothing was dropped above it, and the arity is the route's rather than a
+    // load through the frame's schema. The pop is `popFrame`'s with those two tests settled, and
+    // with no completed value pending it makes no call, so this path needs no frame; anything
+    // else is a tail call.
+    let lane = self.activeLeafRoute.rawValue &- _StreamLeafRoute.simd2Double.rawValue
+    if lane < 3, self.completedValues.isEmpty {
+      let top = self.frameEnd - 1
+      if top.pointee.pendingField != Int32(lane) &+ 2 { self.recordFailure(.typeMismatch) }
+      top.deinitialize(count: 1)
+      self.frameEnd = top
+      self.activeRouteBits = top == self.frames ? 0 : (top - 1).pointee.routeBits
+      return
+    }
+    self.endArrayRouted()
+  }
+
+  @inline(never)
+  private mutating func endArrayRouted() {
     if self.droppedFrameCount == 0, self.activeLeafRoute.usesFrameElementIndex,
       let top = self.topFrame, top.pointee.pendingField != top.pointee.schema.fixedElementCount
     {
@@ -1141,8 +1202,11 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     }
   }
 
+  // Returns `.stream`, so `beginArray` tail-calls it.
   @inline(never)
-  private mutating func openKnownSIMDDoubleElement(_ route: _StreamLeafRoute) {
+  private mutating func openKnownSIMDDoubleElement(
+    _ route: _StreamLeafRoute
+  ) -> StreamContainerDisposition {
     // `activeRouteBits` is zero with an empty stack, so the top frame is this array. Asserted, not
     // tolerated: returning without pushing would let the matching `endArray` pop the parent.
     guard let top = self.topFrame else {
@@ -1153,35 +1217,57 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       let storage = top.pointee.storage.assumingMemoryBound(
         to: StreamArray<SIMD2<Double>>.self
       ).pointee.openElement(.zero, knownUniqueTail: &self.knownUniqueTail)
-      self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD2DoubleSchema))
+      self.pushSIMDDoubleFrame(storage, _streamSIMD2DoubleSchema, lanes: .simd2Double)
     case .arraySIMD3Double:
       let storage = top.pointee.storage.assumingMemoryBound(
         to: StreamArray<SIMD3<Double>>.self
       ).pointee.openElement(.zero, knownUniqueTail: &self.knownUniqueTail)
-      self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD3DoubleSchema))
+      self.pushSIMDDoubleFrame(storage, _streamSIMD3DoubleSchema, lanes: .simd3Double)
     case .arraySIMD4Double:
       let storage = top.pointee.storage.assumingMemoryBound(
         to: StreamArray<SIMD4<Double>>.self
       ).pointee.openElement(.zero, knownUniqueTail: &self.knownUniqueTail)
-      self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD4DoubleSchema))
+      self.pushSIMDDoubleFrame(storage, _streamSIMD4DoubleSchema, lanes: .simd4Double)
     case .arrayOptionalSIMD2Double:
       let storage = top.pointee.storage.assumingMemoryBound(
         to: StreamArray<SIMD2<Double>?>.self
       ).pointee.openElement(.some(.zero), knownUniqueTail: &self.knownUniqueTail)
-      self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD2DoubleSchema))
+      self.pushSIMDDoubleFrame(storage, _streamSIMD2DoubleSchema, lanes: .simd2Double)
     case .arrayOptionalSIMD3Double:
       let storage = top.pointee.storage.assumingMemoryBound(
         to: StreamArray<SIMD3<Double>?>.self
       ).pointee.openElement(.some(.zero), knownUniqueTail: &self.knownUniqueTail)
-      self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD3DoubleSchema))
+      self.pushSIMDDoubleFrame(storage, _streamSIMD3DoubleSchema, lanes: .simd3Double)
     case .arrayOptionalSIMD4Double:
       let storage = top.pointee.storage.assumingMemoryBound(
         to: StreamArray<SIMD4<Double>?>.self
       ).pointee.openElement(.some(.zero), knownUniqueTail: &self.knownUniqueTail)
-      self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD4DoubleSchema))
+      self.pushSIMDDoubleFrame(storage, _streamSIMD4DoubleSchema, lanes: .simd4Double)
     default:
       preconditionFailure("A non-SIMD-array route reached the closed SIMD element opener")
     }
+    return .stream
+  }
+
+  // `pushFrame` for one of the three exact SIMD schemas, with what it would read off the schema
+  // written as constants: they carry no completed value, their route word is fixed, and a lane
+  // frame's cursor starts at zero. Leaves only the depth test, whose overflow arm is `pushFrame`'s.
+  @inline(__always)
+  private mutating func pushSIMDDoubleFrame(
+    _ storage: UnsafeMutableRawPointer, _ schema: StreamSchema, lanes route: _StreamLeafRoute
+  ) {
+    guard self.frameEnd < self.frames + Self.frameCapacity else {
+      self.pushFrame(BorrowedFrame(storage: storage, schema: schema))
+      return
+    }
+    let bits = StreamRouteBits.pack(leafRoute: route, elementKind: .double, elementOptional: false)
+    assert(schema.completedValue == nil && schema.routeBits == bits)
+    var frame = BorrowedFrame(storage: storage, schema: schema)
+    frame.pendingField = 0
+    frame.routeBits = bits
+    self.frameEnd.initialize(to: frame)
+    self.frameEnd += 1
+    self.activeRouteBits = bits
   }
 
   // The full `[Double]` element path, tail-called by `number` when its call-free attempt declines:
