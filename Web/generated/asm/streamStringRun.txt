@@ -3,82 +3,82 @@
 ; 79 instructions
 ; llvm-objdump -d, release benchmark binary
 
-1002e8c84:     	mov	x8, x1
-1002e8c88:     	cmp	x1, x2
-1002e8c8c:     	b.ge	0x1002e8cb8 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x34>
-1002e8c90:     	mov	w9, #0x0                ; =0
-1002e8c94:     	ldrb	w10, [x0, x8]
-1002e8c98:     	cmp	w10, #0x22
-1002e8c9c:     	b.eq	0x1002e8db4 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
-1002e8ca0:     	cmp	w10, #0x5c
-1002e8ca4:     	b.eq	0x1002e8db4 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
-1002e8ca8:     	cmp	w10, #0x20
-1002e8cac:     	b.hs	0x1002e8cb8 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x34>
-1002e8cb0:     	mov	w9, #0x0                ; =0
-1002e8cb4:     	b	0x1002e8db4 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
-1002e8cb8:     	add	x9, x8, #0x10
-1002e8cbc:     	movi.2d	v0, #0000000000000000
-1002e8cc0:     	cmp	x2, x9
-1002e8cc4:     	b.ge	0x1002e8cd0 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x4c>
-1002e8cc8:     	mov	x10, x8
-1002e8ccc:     	b	0x1002e8d18 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x94>
-1002e8cd0:     	movi.16b	v1, #0x22
-1002e8cd4:     	movi.16b	v2, #0x5c
-1002e8cd8:     	movi.16b	v3, #0x20
-1002e8cdc:     	ldr	q4, [x0, x8]
-1002e8ce0:     	cmeq.16b	v5, v4, v1
-1002e8ce4:     	cmeq.16b	v6, v4, v2
-1002e8ce8:     	orr.16b	v5, v5, v6
-1002e8cec:     	cmhi.16b	v6, v3, v4
-1002e8cf0:     	orr.16b	v5, v6, v5
-1002e8cf4:     	umaxv.16b	b6, v5
-1002e8cf8:     	fmov	w9, s6
-1002e8cfc:     	tbnz	w9, #0x0, 0x1002e8d74 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0xf0>
-1002e8d00:     	orr.16b	v0, v4, v0
-1002e8d04:     	add	x10, x8, #0x10
-1002e8d08:     	add	x9, x8, #0x20
-1002e8d0c:     	mov	x8, x10
-1002e8d10:     	cmp	x2, x9
-1002e8d14:     	b.ge	0x1002e8cdc <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x58>
-1002e8d18:     	umaxv.16b	b0, v0
-1002e8d1c:     	smov.b	w8, v0[0]
-1002e8d20:     	cmp	w8, #0x0
-1002e8d24:     	cset	w9, lt
-1002e8d28:     	cmp	x10, x2
-1002e8d2c:     	b.ge	0x1002e8d6c <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0xe8>
-1002e8d30:     	mov	x8, x10
-1002e8d34:     	ldrb	w10, [x0, x8]
-1002e8d38:     	cmp	w10, #0x22
-1002e8d3c:     	b.eq	0x1002e8db4 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
-1002e8d40:     	cmp	w10, #0x5c
-1002e8d44:     	b.eq	0x1002e8db4 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
-1002e8d48:     	cmp	w10, #0x20
-1002e8d4c:     	b.lo	0x1002e8db4 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
-1002e8d50:     	sxtb	w10, w10
-1002e8d54:     	cmp	w10, #0x0
-1002e8d58:     	cset	w10, lt
-1002e8d5c:     	orr	w9, w9, w10
-1002e8d60:     	add	x8, x8, #0x1
-1002e8d64:     	cmp	x2, x8
-1002e8d68:     	b.ne	0x1002e8d34 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0xb0>
-1002e8d6c:     	mov	x8, x2
-1002e8d70:     	b	0x1002e8db4 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
-1002e8d74:     	shrn.8b	v1, v5, #0x4
-1002e8d78:     	fmov	x9, d1
-1002e8d7c:     	rbit	x9, x9
-1002e8d80:     	clz	x9, x9
-1002e8d84:     	lsr	x9, x9, #2
-1002e8d88:     	dup.16b	v1, w9
-1002e8d8c:     	adrp	x10, 0x10052b000 <_$s23StreamParsingBenchmarks23CodableBase64Attachment33_AFB75E5F08771BA54070DE7558BC6B1BLLV10CodingKeysOs0N3KeyAAMc+0x34>
-1002e8d90:     	ldr	q2, [x10, #0x900]
-1002e8d94:     	cmhi.16b	v1, v1, v2
-1002e8d98:     	add	x8, x9, x8
-1002e8d9c:     	and.16b	v1, v1, v4
-1002e8da0:     	orr.16b	v0, v1, v0
-1002e8da4:     	umaxv.16b	b0, v0
-1002e8da8:     	smov.b	w9, v0[0]
-1002e8dac:     	cmp	w9, #0x0
-1002e8db0:     	cset	w9, lt
-1002e8db4:     	and	w1, w9, #0x1
-1002e8db8:     	mov	x0, x8
-1002e8dbc:     	ret
+1002f06cc:     	mov	x8, x1
+1002f06d0:     	cmp	x1, x2
+1002f06d4:     	b.ge	0x1002f0700 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x34>
+1002f06d8:     	mov	w9, #0x0                ; =0
+1002f06dc:     	ldrb	w10, [x0, x8]
+1002f06e0:     	cmp	w10, #0x22
+1002f06e4:     	b.eq	0x1002f07fc <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
+1002f06e8:     	cmp	w10, #0x5c
+1002f06ec:     	b.eq	0x1002f07fc <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
+1002f06f0:     	cmp	w10, #0x20
+1002f06f4:     	b.hs	0x1002f0700 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x34>
+1002f06f8:     	mov	w9, #0x0                ; =0
+1002f06fc:     	b	0x1002f07fc <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
+1002f0700:     	add	x9, x8, #0x10
+1002f0704:     	movi.2d	v0, #0000000000000000
+1002f0708:     	cmp	x2, x9
+1002f070c:     	b.ge	0x1002f0718 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x4c>
+1002f0710:     	mov	x10, x8
+1002f0714:     	b	0x1002f0760 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x94>
+1002f0718:     	movi.16b	v1, #0x22
+1002f071c:     	movi.16b	v2, #0x5c
+1002f0720:     	movi.16b	v3, #0x20
+1002f0724:     	ldr	q4, [x0, x8]
+1002f0728:     	cmeq.16b	v5, v4, v1
+1002f072c:     	cmeq.16b	v6, v4, v2
+1002f0730:     	orr.16b	v5, v5, v6
+1002f0734:     	cmhi.16b	v6, v3, v4
+1002f0738:     	orr.16b	v5, v6, v5
+1002f073c:     	umaxv.16b	b6, v5
+1002f0740:     	fmov	w9, s6
+1002f0744:     	tbnz	w9, #0x0, 0x1002f07bc <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0xf0>
+1002f0748:     	orr.16b	v0, v4, v0
+1002f074c:     	add	x10, x8, #0x10
+1002f0750:     	add	x9, x8, #0x20
+1002f0754:     	mov	x8, x10
+1002f0758:     	cmp	x2, x9
+1002f075c:     	b.ge	0x1002f0724 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x58>
+1002f0760:     	umaxv.16b	b0, v0
+1002f0764:     	smov.b	w8, v0[0]
+1002f0768:     	cmp	w8, #0x0
+1002f076c:     	cset	w9, lt
+1002f0770:     	cmp	x10, x2
+1002f0774:     	b.ge	0x1002f07b4 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0xe8>
+1002f0778:     	mov	x8, x10
+1002f077c:     	ldrb	w10, [x0, x8]
+1002f0780:     	cmp	w10, #0x22
+1002f0784:     	b.eq	0x1002f07fc <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
+1002f0788:     	cmp	w10, #0x5c
+1002f078c:     	b.eq	0x1002f07fc <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
+1002f0790:     	cmp	w10, #0x20
+1002f0794:     	b.lo	0x1002f07fc <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
+1002f0798:     	sxtb	w10, w10
+1002f079c:     	cmp	w10, #0x0
+1002f07a0:     	cset	w10, lt
+1002f07a4:     	orr	w9, w9, w10
+1002f07a8:     	add	x8, x8, #0x1
+1002f07ac:     	cmp	x2, x8
+1002f07b0:     	b.ne	0x1002f077c <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0xb0>
+1002f07b4:     	mov	x8, x2
+1002f07b8:     	b	0x1002f07fc <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
+1002f07bc:     	shrn.8b	v1, v5, #0x4
+1002f07c0:     	fmov	x9, d1
+1002f07c4:     	rbit	x9, x9
+1002f07c8:     	clz	x9, x9
+1002f07cc:     	lsr	x9, x9, #2
+1002f07d0:     	dup.16b	v1, w9
+1002f07d4:     	adrp	x10, 0x100535000 <_$s23StreamParsingBenchmarks27BenchmarkQwen3ToolArgumentsV10CodingKeys33_5416B021FE73E7AC8C4855A62A631F6ELLOs28CustomDebugStringConvertibleAAMc+0x24>
+1002f07d8:     	ldr	q2, [x10, #0x320]
+1002f07dc:     	cmhi.16b	v1, v1, v2
+1002f07e0:     	add	x8, x9, x8
+1002f07e4:     	and.16b	v1, v1, v4
+1002f07e8:     	orr.16b	v0, v1, v0
+1002f07ec:     	umaxv.16b	b0, v0
+1002f07f0:     	smov.b	w9, v0[0]
+1002f07f4:     	cmp	w9, #0x0
+1002f07f8:     	cset	w9, lt
+1002f07fc:     	and	w1, w9, #0x1
+1002f0800:     	mov	x0, x8
+1002f0804:     	ret

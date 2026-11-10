@@ -86,7 +86,8 @@ package func streamValidateUTF8Scalar(base: UnsafeRawPointer, from: Int, to: Int
 }
 
 // The validator the parser calls: table lookups and overlapping loads where the platform has
-// them (see `StreamParsingShims.h`, where lane shifting was measured 10% slower and dropped).
+// them (see `StreamParsingShims.h`, where lane shifting in the run loop was measured 10% slower
+// and dropped; only a block with nothing before it is shifted in, from zero).
 // Out of line by name for the tests; the parser inlines `streamValidateUTF8Inline` into its own
 // out-of-line `validateNonASCIIRun` instead, so a valid run costs one call, not two.
 @inlinable

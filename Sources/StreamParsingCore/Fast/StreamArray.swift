@@ -721,10 +721,11 @@ extension StreamArray {
 // MARK: - Appends into a tail the sink already proved unique
 
 // A tail stays unique until something copies the array, and nothing can between two tokens of one
-// parse call: no caller code runs inside the call, and the sink never copies a destination
-// (template copies are made *from* storage no append targets; closed elements move). So the sink
-// proves a tail unique once per call and remembers the block's address in `known`;
-// `PartialSink.commit()` and `reset()` forget it, which is where a caller can copy again.
+// parse call: the only caller code that runs inside the call is an `onFieldRecognized` hook, and
+// the sink never copies a destination (template copies are made *from* storage no append targets;
+// closed elements move). So the sink proves a tail unique once per call and remembers the block's
+// address in `known`; `PartialSink.commit()`, `reset()` and the return from a field hook forget
+// it, which is where a caller can copy again.
 // Measured: the per-element `swift_isUniquelyReferenced_native` call, through a dyld stub, was ~9%
 // of typed Mesh. PROGRESSION.md, "Landed: ordinary copy-on-write on streaming collection tails",
 // names this as a follow-up.

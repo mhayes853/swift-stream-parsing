@@ -115,8 +115,8 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   // The address of a `StreamArray` tail block this parse call has already proved unique, so the
   // number and fixed-width element appends skip the runtime uniqueness call on it; see
   // `StreamArray.nextSlot(knownUniqueTail:)` for why that holds within a call. Forgotten by
-  // `commit()` -- the end of every parse call, and so before any copy a caller can take -- and
-  // by `reset()`. A driver that feeds this sink without a parser must call `commit()` before
+  // `commit()` -- the end of every parse call, and so before any copy a caller can take -- by
+  // `reset()`, and after an `onFieldRecognized` hook, which runs mid-call. A driver that feeds this sink without a parser must call `commit()` before
   // copying the destination.
   @usableFromInline var knownUniqueTail: UInt = PartialSink.noKnownUniqueTail
 

@@ -67335,28 +67335,5446 @@
         ],
         "title" : "Landed: a chunk-cut number hands the rest of its array back to `fuseNumberRun`",
         "verdict" : "landed"
+      },
+      {
+        "chapter" : "Landed: the sink's array appends prove the tail unique once per parse call",
+        "codeBlocks" : [
+
+        ],
+        "level" : 2,
+        "line" : 5377,
+        "markdown" : "*Recorded 2026-11-09.*\n\n\"Landed: ordinary copy-on-write on streaming collection tails\" put a uniqueness check in\n`StreamArray.nextSlot()`, and the typed number-array and fixed-width element appends paid it per\nelement: an outlined `ensureUniqueTail` calling `swift_isUniquelyReferenced_native` through a dyld\nstub. In the baseline profiles typed Mesh spent 5.2% in `isUnique`, 3.4% in the stub and 4.6% in\n`ensureUniqueTail`, and Canada about 2.9%; CITM, GitHub, GSoC, LLM and Qwen showed at most 0.6%,\nso the dictionary and string paths were left alone. Three changes:\n\n- `nextSlot` inlines the test and outlines only the copy (`copySharedTail`), so every append path\n  loses the `ensureUniqueTail` frame.\n- `PartialSink.knownUniqueTail` holds the address of a tail block the sink has proved unique during\n  the current parse call. `arrayDouble` / `arrayInt` appends and the SIMD element opens go through\n  `nextSlot(knownUniqueTail:)`, which skips the runtime call on a hit. The address is forgotten at\n  `commit()` (the end of every parse call), at `reset()`, and after an `onFieldRecognized` hook\n  runs, since the hook is caller code that can copy a member mid-call. Debug builds still assert\n  the claim.\n- `appendHomogeneousInt` is `@_transparent`. With the extra `inout`, `@inline(__always)` stopped\n  holding and `number` tail-called an outlined copy with its own five-pair prologue.\n\nThe `Double` hit path is `ldr` tail, `ldr` known, `cmp`, `b.ne`, `ldr` count, `ldr` capacity,\n`cmp`, `b.ge`, `add`, with no call. Nine tests in `SinkTailUniquenessTests`; removing the\n`commit()` / `reset()` clears fires the debug assert in them.",
+        "measurements" : [
+
+        ],
+        "path" : "landed-the-sink-s-array-appends-prove-the-tail-unique-once-per-parse-call",
+        "slug" : "landed-the-sink-s-array-appends-prove-the-tail-unique-once-per-parse-call",
+        "summary" : "\"Landed: ordinary copy-on-write on streaming collection tails\" put a uniqueness check in StreamArray.nextSlot(), and the typed number-array and fixed-width element appends paid it per element: an outlined ensureUniqueTail calling…",
+        "tables" : [
+
+        ],
+        "title" : "Landed: the sink's array appends prove the tail unique once per parse call",
+        "verdict" : "landed"
+      },
+      {
+        "chapter" : "Landed: the sink's array appends prove the tail unique once per parse call",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 5403,
+        "markdown" : "*Recorded 2026-11-09.*\n\nTyped rows, 3 rounds, p0 against 5a61414f. V1 is the inlined test, V2 adds `knownUniqueTail`. The\nMesh 16KB row includes the chunk-cut change, +16.4% alone.\n\n| Row | V1 | V2 |\n| --- | ---: | ---: |\n| Real Mesh - bulk discarding | +10.6% | +13.4% |\n| Real Mesh - 16KB chunks discarding | +28.3% | +31.6% |\n| Real Mesh dynamic influences - bulk discarding | +7.5% | +9.3% |\n| Real Canada - bulk discarding | +1.5% | +2.2% |\n| Real Canada dynamic coordinates - bulk discarding | +1.4% | +1.8% |\n| CITM, GitHub, GSoC, Twitter full | ~0 | ~0 |\n\nV3 (`@_transparent`) against V2 in a second pass: Mesh +0.8%, Mesh 16KB +1.2%, Twitter full -4.1%\n[-4.4 .. +0.2]. Full gate, aligned, 3 rounds on a quiet machine, V3 against 312c63d1:\n\n| Row | Change |\n| --- | ---: |\n| Real Mesh - bulk discarding | +14.7% |\n| Real Mesh - 16KB chunks discarding | +14.4% |\n| Real Canada - bulk discarding | +2.2% |\n| Real CITM catalog - bulk discarding | +1.7% |\n| Every other row | -0.4% .. +2.3% |\n\nIn the same gate V3 against V2 read Mesh +1.0% and CITM typed +1.1%.",
+        "measurements" : [
+          {
+            "column" : "V1",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Real Mesh - bulk discarding",
+            "unit" : "%",
+            "value" : 10.6
+          },
+          {
+            "column" : "V2",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Real Mesh - bulk discarding",
+            "unit" : "%",
+            "value" : 13.4
+          },
+          {
+            "column" : "V1",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Real Mesh - 16KB chunks discarding",
+            "unit" : "%",
+            "value" : 28.3
+          },
+          {
+            "column" : "V2",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Real Mesh - 16KB chunks discarding",
+            "unit" : "%",
+            "value" : 31.6
+          },
+          {
+            "column" : "V1",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Real Mesh dynamic influences - bulk discarding",
+            "unit" : "%",
+            "value" : 7.5
+          },
+          {
+            "column" : "V2",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Real Mesh dynamic influences - bulk discarding",
+            "unit" : "%",
+            "value" : 9.3
+          },
+          {
+            "column" : "V1",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Real Canada - bulk discarding",
+            "unit" : "%",
+            "value" : 1.5
+          },
+          {
+            "column" : "V2",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Real Canada - bulk discarding",
+            "unit" : "%",
+            "value" : 2.2
+          },
+          {
+            "column" : "V1",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Real Canada dynamic coordinates - bulk discarding",
+            "unit" : "%",
+            "value" : 1.4
+          },
+          {
+            "column" : "V2",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Real Canada dynamic coordinates - bulk discarding",
+            "unit" : "%",
+            "value" : 1.8
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Real Mesh - bulk discarding",
+            "unit" : "%",
+            "value" : 14.7
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Real Mesh - 16KB chunks discarding",
+            "unit" : "%",
+            "value" : 14.4
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Real Canada - bulk discarding",
+            "unit" : "%",
+            "value" : 2.2
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "citm_catalog",
+            "rowLabel" : "Real CITM catalog - bulk discarding",
+            "unit" : "%",
+            "value" : 1.7
+          }
+        ],
+        "parentPath" : "landed-the-sink-s-array-appends-prove-the-tail-unique-once-per-parse-call",
+        "path" : "landed-the-sink-s-array-appends-prove-the-tail-unique-once-per-parse-call/measured",
+        "slug" : "measured",
+        "summary" : "Typed rows, 3 rounds, p0 against 5a61414f. V1 is the inlined test, V2 adds knownUniqueTail. The Mesh 16KB row includes the chunk-cut change, +16.4% alone.",
+        "tables" : [
+          {
+            "headers" : [
+              "Row",
+              "V1",
+              "V2"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Mesh - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+10.6%",
+                  "unit" : "%",
+                  "value" : 10.6
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+13.4%",
+                  "unit" : "%",
+                  "value" : 13.4
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Mesh - 16KB chunks discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+28.3%",
+                  "unit" : "%",
+                  "value" : 28.3
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+31.6%",
+                  "unit" : "%",
+                  "value" : 31.6
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Mesh dynamic influences - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+7.5%",
+                  "unit" : "%",
+                  "value" : 7.5
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+9.3%",
+                  "unit" : "%",
+                  "value" : 9.3
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Canada - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.5%",
+                  "unit" : "%",
+                  "value" : 1.5
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+2.2%",
+                  "unit" : "%",
+                  "value" : 2.2
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Canada dynamic coordinates - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.4%",
+                  "unit" : "%",
+                  "value" : 1.4
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.8%",
+                  "unit" : "%",
+                  "value" : 1.8
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "CITM, GitHub, GSoC, Twitter full"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "~0"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "~0"
+                }
+              ]
+            ]
+          },
+          {
+            "headers" : [
+              "Row",
+              "Change"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Mesh - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+14.7%",
+                  "unit" : "%",
+                  "value" : 14.7
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Mesh - 16KB chunks discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+14.4%",
+                  "unit" : "%",
+                  "value" : 14.4
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Canada - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+2.2%",
+                  "unit" : "%",
+                  "value" : 2.2
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real CITM catalog - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.7%",
+                  "unit" : "%",
+                  "value" : 1.7
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Every other row"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-0.4% .. +2.3%",
+                  "unit" : "% .. +2.3%",
+                  "value" : -0.4
+                }
+              ]
+            ]
+          }
+        ],
+        "title" : "Measured",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Landed: the arm64 UTF-8 validator keeps every byte in registers",
+        "codeBlocks" : [
+
+        ],
+        "level" : 2,
+        "line" : 5432,
+        "markdown" : "*Recorded 2026-11-09.*\n\n`streamValidateUTF8Shimmed` built its first block, a short run and the tail in a 32-byte\nzero-padded stack scratch. In the baseline binary that was a prologue saving x19–x22, a\nstack-protector load and check, `stp q0, q0` and `bl memcpy` for the first block and again for the\ntail, `ldur q` reloads that read 16 bytes back from byte stores (a store-forwarding failure), and\nthe three tables and the accumulator spilled around the tail's `memcpy`.\n\nThe run loop is now `stream_parsing_utf8_validate_neon` in the shim, and no byte goes through\nmemory. The first block's previous-byte views are `ext` against zero\n(`stream_parsing_utf8_first_block_errors`). A run shorter than sixteen bytes is the sixteen bytes\nending at `to` with the lanes before `from` cleared, or, when fewer than sixteen bytes precede\n`to`, assembled from overlapping loads inside the run (`stream_parsing_load_short_u8`). The tail\nis the sixteen bytes ending at `to`, its views loads except for a 17- or 18-byte run, where they\nare the first block shifted in from zero. The kernel reads `[0, to)` of `base`, which every\ncaller's base (the chunk, the parser's buffer, the `parse(byte:)` scalar) satisfies; a test runs\nevery length 0...80 at offsets 0...33 in an exactly sized allocation, and under ASan catches an\ninjected read past `to`. `streamValidateUTF8` became a frameless leaf.\n\nThen `validateNonASCIIRun` inlines the kernel (`streamValidateUTF8Inline`), and the scalar walk and\nthe throw move to a static `@inline(never)` `failInvalidUTF8` in tail position. A valid run is one\ncall with a frame record, where it was two calls and six saved registers.",
+        "measurements" : [
+
+        ],
+        "path" : "landed-the-arm64-utf-8-validator-keeps-every-byte-in-registers",
+        "slug" : "landed-the-arm64-utf-8-validator-keeps-every-byte-in-registers",
+        "summary" : "streamValidateUTF8Shimmed built its first block, a short run and the tail in a 32-byte zero-padded stack scratch. In the baseline binary that was a prologue saving x19–x22, a stack-protector load and check, stp q0, q0 and bl memcpy for the first block and…",
+        "tables" : [
+
+        ],
+        "title" : "Landed: the arm64 UTF-8 validator keeps every byte in registers",
+        "verdict" : "landed"
+      },
+      {
+        "chapter" : "Landed: the arm64 UTF-8 validator keeps every byte in registers",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 5457,
+        "markdown" : "*Recorded 2026-11-09.*\n\nVariants, 3 interleaved rounds against 5a61414f, raw / typed. v1 is the kernel in the shim, v2\ninlines it into `validateNonASCIIRun` with the walk outlined, v3 also outlines the throw:\n\n| Row | v1 | v2 | v3 |\n| --- | ---: | ---: | ---: |\n| LLM message | +3.4% / +1.6% | +4.6% / +2.6% | +8.8% / +6.0% |\n| Twitter | -1.8% / -1.6% (mixed) | | +2.8% / +2.6% |\n| Twitter spaced | +0.8% / -1.5% | | +6.4% / +2.4% |\n| GSoC 2018 | | -5.8% raw [-5.8 .. -1.6] | -1.7% / +0.7% |\n| Twitter full (typed) | | | +1.7% |\n\nAn earlier pass of v1 alone read GSoC raw -4.6% [-5.9 .. +2.3] and LLM byte by byte -4.1%\n[-4.2 .. +0.1] while `parse`, `consumeStructuralRun`, `consumeStructuralBlocks`,\n`consumeStringRun`, `coalescedEscapedStringTail` and `validateNonASCIIRun` were opcode-identical\nto the baseline; v3 left the byte-fed rows flat. Full gate, v3 against 5a61414f, 3 rounds:\n\n| Row | Raw | Typed |\n| --- | ---: | ---: |\n| LLM message (bulk and 16KB) | +8.0% | +5.5% |\n| Twitter | +2.8% | +2.4% |\n| Twitter spaced | +4.8% | +3.3% |\n| Twitter full, bulk / 16KB | | +1.7% / +2.2% |\n| GSoC 2018 - 16KB chunks | -1.4% [-3.1 .. -1.3] | |\n| Every other row | within ±1.6% | within ±1.6% |",
+        "measurements" : [
+          {
+            "column" : "v1",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message",
+            "unit" : "% / +1.6%",
+            "value" : 3.4
+          },
+          {
+            "column" : "v2",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message",
+            "unit" : "% / +2.6%",
+            "value" : 4.6
+          },
+          {
+            "column" : "v3",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message",
+            "unit" : "% / +6.0%",
+            "value" : 8.8
+          },
+          {
+            "column" : "v1",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter",
+            "unit" : "% / -1.6% (mixed)",
+            "value" : -1.8
+          },
+          {
+            "column" : "v3",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter",
+            "unit" : "% / +2.6%",
+            "value" : 2.8
+          },
+          {
+            "column" : "v1",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter spaced",
+            "unit" : "% / -1.5%",
+            "value" : 0.8
+          },
+          {
+            "column" : "v3",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter spaced",
+            "unit" : "% / +2.4%",
+            "value" : 6.4
+          },
+          {
+            "column" : "v2",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018",
+            "unit" : "% raw [-5.8 .. -1.6]",
+            "value" : -5.8
+          },
+          {
+            "column" : "v3",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018",
+            "unit" : "% / +0.7%",
+            "value" : -1.7
+          },
+          {
+            "column" : "v3",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter full (typed)",
+            "unit" : "%",
+            "value" : 1.7
+          },
+          {
+            "column" : "Raw",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message (bulk and 16KB)",
+            "unit" : "%",
+            "value" : 8
+          },
+          {
+            "column" : "Typed",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message (bulk and 16KB)",
+            "unit" : "%",
+            "value" : 5.5
+          },
+          {
+            "column" : "Raw",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter",
+            "unit" : "%",
+            "value" : 2.8
+          },
+          {
+            "column" : "Typed",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter",
+            "unit" : "%",
+            "value" : 2.4
+          },
+          {
+            "column" : "Raw",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter spaced",
+            "unit" : "%",
+            "value" : 4.8
+          },
+          {
+            "column" : "Typed",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter spaced",
+            "unit" : "%",
+            "value" : 3.3
+          },
+          {
+            "column" : "Typed",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter full, bulk / 16KB",
+            "unit" : "% / +2.2%",
+            "value" : 1.7
+          },
+          {
+            "column" : "Raw",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018 - 16KB chunks",
+            "unit" : "% [-3.1 .. -1.3]",
+            "value" : -1.4
+          }
+        ],
+        "parentPath" : "landed-the-arm64-utf-8-validator-keeps-every-byte-in-registers",
+        "path" : "landed-the-arm64-utf-8-validator-keeps-every-byte-in-registers/measured",
+        "slug" : "measured",
+        "summary" : "Variants, 3 interleaved rounds against 5a61414f, raw / typed. v1 is the kernel in the shim, v2 inlines it into validateNonASCIIRun with the walk outlined, v3 also outlines the throw:",
+        "tables" : [
+          {
+            "headers" : [
+              "Row",
+              "v1",
+              "v2",
+              "v3"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "LLM message"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+3.4% / +1.6%",
+                  "unit" : "% / +1.6%",
+                  "value" : 3.4
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+4.6% / +2.6%",
+                  "unit" : "% / +2.6%",
+                  "value" : 4.6
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+8.8% / +6.0%",
+                  "unit" : "% / +6.0%",
+                  "value" : 8.8
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-1.8% / -1.6% (mixed)",
+                  "unit" : "% / -1.6% (mixed)",
+                  "value" : -1.8
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : ""
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+2.8% / +2.6%",
+                  "unit" : "% / +2.6%",
+                  "value" : 2.8
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter spaced"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.8% / -1.5%",
+                  "unit" : "% / -1.5%",
+                  "value" : 0.8
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : ""
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+6.4% / +2.4%",
+                  "unit" : "% / +2.4%",
+                  "value" : 6.4
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "GSoC 2018"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : ""
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-5.8% raw [-5.8 .. -1.6]",
+                  "unit" : "% raw [-5.8 .. -1.6]",
+                  "value" : -5.8
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-1.7% / +0.7%",
+                  "unit" : "% / +0.7%",
+                  "value" : -1.7
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter full (typed)"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : ""
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : ""
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.7%",
+                  "unit" : "%",
+                  "value" : 1.7
+                }
+              ]
+            ]
+          },
+          {
+            "headers" : [
+              "Row",
+              "Raw",
+              "Typed"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "LLM message (bulk and 16KB)"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+8.0%",
+                  "unit" : "%",
+                  "value" : 8
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+5.5%",
+                  "unit" : "%",
+                  "value" : 5.5
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+2.8%",
+                  "unit" : "%",
+                  "value" : 2.8
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+2.4%",
+                  "unit" : "%",
+                  "value" : 2.4
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter spaced"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+4.8%",
+                  "unit" : "%",
+                  "value" : 4.8
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+3.3%",
+                  "unit" : "%",
+                  "value" : 3.3
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter full, bulk / 16KB"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : ""
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.7% / +2.2%",
+                  "unit" : "% / +2.2%",
+                  "value" : 1.7
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "GSoC 2018 - 16KB chunks"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-1.4% [-3.1 .. -1.3]",
+                  "unit" : "% [-3.1 .. -1.3]",
+                  "value" : -1.4
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : ""
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Every other row"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "within ±1.6%"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "within ±1.6%"
+                }
+              ]
+            ]
+          }
+        ],
+        "title" : "Measured",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Landed: container members open with one copy and no closure retain",
+        "codeBlocks" : [
+
+        ],
+        "level" : 2,
+        "line" : 5486,
+        "markdown" : "*Recorded 2026-11-09.*\n\nThree changes on the typed layer's member and element open path.\n\n- **Template copies.** `_streamCopyInitialize` takes the value-witness path above 128 bytes\n  (was 1024). Below the threshold `initialize(to:)` stages the value, and from 64-byte structs with\n  three refcounted fields up that compiled to a `memcpy` from the template to a stack temporary, a\n  `memcpy` from the template to the slot, and an outlined `initializeWithCopy` of the temporary\n  into a second, dead one, which is where the retains happen; only values of 48 bytes or fewer\n  stayed inline. The same shape was in the `GitHubPayload.Partial?` prepare (721 B), the\n  `CITMArea.Partial` element open (60 B) and the mid-size prepares (176 B).\n  `_streamCopyInitializeSome` copies an optional template's payload through the payload's own\n  witness plus its trivial tag bytes, skipping `Optional`'s generic witness; the optional-member\n  prepare and the dictionary value open use it.\n- **Field prepares.** `StreamFieldTable.prepares` holds each closure in a `_StreamFieldPrepareBox`,\n  retained once and stored as an address, and `valueTarget` calls it through\n  `_withUnsafeGuaranteedRef`. Loading the closure out of `UnsafePointer<StreamFieldPrepare?>` was\n  an outlined copy (a retain), a call at maximal abstraction through a reabstraction thunk with both\n  arguments spilled, and an outlined consume (a release), per member open.\n- **Generic containers construct.** `StreamArray` and `StreamDictionary` set\n  `_streamOpensByConstruction` and make `init()` / `streamInitialValue()` `@inlinable`. Their\n  template copy was the generic struct witness walking every field through metadata, on every\n  optional array or dictionary member and every array-of-arrays element opened.",
+        "measurements" : [
+
+        ],
+        "path" : "landed-container-members-open-with-one-copy-and-no-closure-retain",
+        "slug" : "landed-container-members-open-with-one-copy-and-no-closure-retain",
+        "summary" : "Three changes on the typed layer's member and element open path.",
+        "tables" : [
+
+        ],
+        "title" : "Landed: container members open with one copy and no closure retain",
+        "verdict" : "landed"
+      },
+      {
+        "chapter" : "Landed: container members open with one copy and no closure retain",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 5512,
+        "markdown" : "*Recorded 2026-11-09.*\n\nTyped rows, median p0 against 5a61414f, 3 rounds. v1 is the copy changes, v2 adds the prepare box,\nv3 adds the constructed containers, v4 is v3 with the threshold at 48 bytes. The first pass (v1, v2)\nran with the machine at load about 200; the second (v2, v3, v4) at low load.\n\n| Row | v1 | v2, first pass | v2 | v3 | v4 |\n| --- | ---: | ---: | ---: | ---: | ---: |\n| CITM catalog | +1.0% | +11.5% | +11.6% | +24.9% | +19.8% |\n| Qwen 3 structured response | +3.7% | +4.9% | +8.1% | +16.0% | +16.2% |\n| Twitter full | +3.3% | +8.7% | +10.7% | +12.7% | +12.8% |\n| GitHub events | +3.8% | +9.8% | +4.9% | +9.4% | +9.0% |\n| GSoC 2018 | +4.5% | +6.5% | +6.6% | +6.9% | +7.0% |\n| Qwen 3 workspace edit | +0.4% | -0.8% [-1.3 .. -0.5] | +3.2% | +6.6% | +6.6% |\n| Twitter | -0.1% | +0.9% | +2.1% | +2.6% | +2.4% |\n| Canada | -1.1% | +0.1% | ~0 | ~0 | ~0 |",
+        "measurements" : [
+          {
+            "column" : "v1",
+            "isDelta" : true,
+            "payload" : "citm_catalog",
+            "rowLabel" : "CITM catalog",
+            "unit" : "%",
+            "value" : 1
+          },
+          {
+            "column" : "v2, first pass",
+            "isDelta" : true,
+            "payload" : "citm_catalog",
+            "rowLabel" : "CITM catalog",
+            "unit" : "%",
+            "value" : 11.5
+          },
+          {
+            "column" : "v2",
+            "isDelta" : true,
+            "payload" : "citm_catalog",
+            "rowLabel" : "CITM catalog",
+            "unit" : "%",
+            "value" : 11.6
+          },
+          {
+            "column" : "v3",
+            "isDelta" : true,
+            "payload" : "citm_catalog",
+            "rowLabel" : "CITM catalog",
+            "unit" : "%",
+            "value" : 24.9
+          },
+          {
+            "column" : "v4",
+            "isDelta" : true,
+            "payload" : "citm_catalog",
+            "rowLabel" : "CITM catalog",
+            "unit" : "%",
+            "value" : 19.8
+          },
+          {
+            "column" : "v1",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 structured response",
+            "unit" : "%",
+            "value" : 3.7
+          },
+          {
+            "column" : "v2, first pass",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 structured response",
+            "unit" : "%",
+            "value" : 4.9
+          },
+          {
+            "column" : "v2",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 structured response",
+            "unit" : "%",
+            "value" : 8.1
+          },
+          {
+            "column" : "v3",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 structured response",
+            "unit" : "%",
+            "value" : 16
+          },
+          {
+            "column" : "v4",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 structured response",
+            "unit" : "%",
+            "value" : 16.2
+          },
+          {
+            "column" : "v1",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter full",
+            "unit" : "%",
+            "value" : 3.3
+          },
+          {
+            "column" : "v2, first pass",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter full",
+            "unit" : "%",
+            "value" : 8.7
+          },
+          {
+            "column" : "v2",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter full",
+            "unit" : "%",
+            "value" : 10.7
+          },
+          {
+            "column" : "v3",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter full",
+            "unit" : "%",
+            "value" : 12.7
+          },
+          {
+            "column" : "v4",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter full",
+            "unit" : "%",
+            "value" : 12.8
+          },
+          {
+            "column" : "v1",
+            "isDelta" : true,
+            "payload" : "github_events",
+            "rowLabel" : "GitHub events",
+            "unit" : "%",
+            "value" : 3.8
+          },
+          {
+            "column" : "v2, first pass",
+            "isDelta" : true,
+            "payload" : "github_events",
+            "rowLabel" : "GitHub events",
+            "unit" : "%",
+            "value" : 9.8
+          },
+          {
+            "column" : "v2",
+            "isDelta" : true,
+            "payload" : "github_events",
+            "rowLabel" : "GitHub events",
+            "unit" : "%",
+            "value" : 4.9
+          },
+          {
+            "column" : "v3",
+            "isDelta" : true,
+            "payload" : "github_events",
+            "rowLabel" : "GitHub events",
+            "unit" : "%",
+            "value" : 9.4
+          },
+          {
+            "column" : "v4",
+            "isDelta" : true,
+            "payload" : "github_events",
+            "rowLabel" : "GitHub events",
+            "unit" : "%",
+            "value" : 9
+          },
+          {
+            "column" : "v1",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018",
+            "unit" : "%",
+            "value" : 4.5
+          },
+          {
+            "column" : "v2, first pass",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018",
+            "unit" : "%",
+            "value" : 6.5
+          },
+          {
+            "column" : "v2",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018",
+            "unit" : "%",
+            "value" : 6.6
+          },
+          {
+            "column" : "v3",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018",
+            "unit" : "%",
+            "value" : 6.9
+          },
+          {
+            "column" : "v4",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018",
+            "unit" : "%",
+            "value" : 7
+          },
+          {
+            "column" : "v1",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 workspace edit",
+            "unit" : "%",
+            "value" : 0.4
+          },
+          {
+            "column" : "v2, first pass",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 workspace edit",
+            "unit" : "% [-1.3 .. -0.5]",
+            "value" : -0.8
+          },
+          {
+            "column" : "v2",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 workspace edit",
+            "unit" : "%",
+            "value" : 3.2
+          },
+          {
+            "column" : "v3",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 workspace edit",
+            "unit" : "%",
+            "value" : 6.6
+          },
+          {
+            "column" : "v4",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 workspace edit",
+            "unit" : "%",
+            "value" : 6.6
+          },
+          {
+            "column" : "v1",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter",
+            "unit" : "%",
+            "value" : -0.1
+          },
+          {
+            "column" : "v2, first pass",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter",
+            "unit" : "%",
+            "value" : 0.9
+          },
+          {
+            "column" : "v2",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter",
+            "unit" : "%",
+            "value" : 2.1
+          },
+          {
+            "column" : "v3",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter",
+            "unit" : "%",
+            "value" : 2.6
+          },
+          {
+            "column" : "v4",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter",
+            "unit" : "%",
+            "value" : 2.4
+          },
+          {
+            "column" : "v1",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Canada",
+            "unit" : "%",
+            "value" : -1.1
+          },
+          {
+            "column" : "v2, first pass",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Canada",
+            "unit" : "%",
+            "value" : 0.1
+          }
+        ],
+        "parentPath" : "landed-container-members-open-with-one-copy-and-no-closure-retain",
+        "path" : "landed-container-members-open-with-one-copy-and-no-closure-retain/measured",
+        "slug" : "measured",
+        "summary" : "Typed rows, median p0 against 5a61414f, 3 rounds. v1 is the copy changes, v2 adds the prepare box, v3 adds the constructed containers, v4 is v3 with the threshold at 48 bytes. The first pass (v1, v2) ran with the machine at load about 200; the second (v2, v3,…",
+        "tables" : [
+          {
+            "headers" : [
+              "Row",
+              "v1",
+              "v2, first pass",
+              "v2",
+              "v3",
+              "v4"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "CITM catalog"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.0%",
+                  "unit" : "%",
+                  "value" : 1
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+11.5%",
+                  "unit" : "%",
+                  "value" : 11.5
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+11.6%",
+                  "unit" : "%",
+                  "value" : 11.6
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+24.9%",
+                  "unit" : "%",
+                  "value" : 24.9
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+19.8%",
+                  "unit" : "%",
+                  "value" : 19.8
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Qwen 3 structured response"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+3.7%",
+                  "unit" : "%",
+                  "value" : 3.7
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+4.9%",
+                  "unit" : "%",
+                  "value" : 4.9
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+8.1%",
+                  "unit" : "%",
+                  "value" : 8.1
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+16.0%",
+                  "unit" : "%",
+                  "value" : 16
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+16.2%",
+                  "unit" : "%",
+                  "value" : 16.2
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter full"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+3.3%",
+                  "unit" : "%",
+                  "value" : 3.3
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+8.7%",
+                  "unit" : "%",
+                  "value" : 8.7
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+10.7%",
+                  "unit" : "%",
+                  "value" : 10.7
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+12.7%",
+                  "unit" : "%",
+                  "value" : 12.7
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+12.8%",
+                  "unit" : "%",
+                  "value" : 12.8
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "GitHub events"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+3.8%",
+                  "unit" : "%",
+                  "value" : 3.8
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+9.8%",
+                  "unit" : "%",
+                  "value" : 9.8
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+4.9%",
+                  "unit" : "%",
+                  "value" : 4.9
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+9.4%",
+                  "unit" : "%",
+                  "value" : 9.4
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+9.0%",
+                  "unit" : "%",
+                  "value" : 9
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "GSoC 2018"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+4.5%",
+                  "unit" : "%",
+                  "value" : 4.5
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+6.5%",
+                  "unit" : "%",
+                  "value" : 6.5
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+6.6%",
+                  "unit" : "%",
+                  "value" : 6.6
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+6.9%",
+                  "unit" : "%",
+                  "value" : 6.9
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+7.0%",
+                  "unit" : "%",
+                  "value" : 7
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Qwen 3 workspace edit"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.4%",
+                  "unit" : "%",
+                  "value" : 0.4
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-0.8% [-1.3 .. -0.5]",
+                  "unit" : "% [-1.3 .. -0.5]",
+                  "value" : -0.8
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+3.2%",
+                  "unit" : "%",
+                  "value" : 3.2
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+6.6%",
+                  "unit" : "%",
+                  "value" : 6.6
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+6.6%",
+                  "unit" : "%",
+                  "value" : 6.6
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-0.1%",
+                  "unit" : "%",
+                  "value" : -0.1
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.9%",
+                  "unit" : "%",
+                  "value" : 0.9
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+2.1%",
+                  "unit" : "%",
+                  "value" : 2.1
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+2.6%",
+                  "unit" : "%",
+                  "value" : 2.6
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+2.4%",
+                  "unit" : "%",
+                  "value" : 2.4
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Canada"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-1.1%",
+                  "unit" : "%",
+                  "value" : -1.1
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.1%",
+                  "unit" : "%",
+                  "value" : 0.1
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "~0"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "~0"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "~0"
+                }
+              ]
+            ]
+          }
+        ],
+        "title" : "Measured",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Landed: container members open with one copy and no closure retain",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 5531,
+        "markdown" : "*Recorded 2026-11-09.*\n\nv4 against v3 cost CITM 4.1%: its 60–92 byte elements take the runtime path at 48 and prefer the\nstaged copy. A 256-byte threshold was built and not measured.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "landed-container-members-open-with-one-copy-and-no-closure-retain",
+        "path" : "landed-container-members-open-with-one-copy-and-no-closure-retain/rejected-a-48-byte-copy-threshold",
+        "slug" : "rejected-a-48-byte-copy-threshold",
+        "summary" : "v4 against v3 cost CITM 4.1%: its 60–92 byte elements take the runtime path at 48 and prefer the staged copy. A 256-byte threshold was built and not measured.",
+        "tables" : [
+
+        ],
+        "title" : "Rejected: a 48-byte copy threshold",
+        "verdict" : "rejected"
+      },
+      {
+        "chapter" : "Landed: container members open with one copy and no closure retain",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 5538,
+        "markdown" : "*Recorded 2026-11-09.*\n\nv3 against 5a61414f, 3 rounds:\n\n| Row | Change |\n| --- | ---: |\n| CITM catalog, typed bulk / 16KB | +24.8% / +25.0% |\n| Twitter full, typed bulk / 16KB | +10.7% / +10.8% |\n| Qwen 3 structured response, typed | +9.9% |\n| GitHub events, typed | +9.5% |\n| GSoC 2018, typed bulk / 16KB | +6.4% / +6.0% |\n| Qwen 3 workspace edit, typed | +1.0% [+0.3 .. +7.8] |\n| Twitter, Twitter escaped, Twitter spaced, typed | +0.8% .. +0.9% |\n| LLM message, typed | +0.8% |\n| Canada / Mesh, typed | +0.3% / +0.2% |\n| GSoC 2018, raw bulk / 16KB | -1.6% / -1.5% |\n| Canada, raw bulk / 16KB | -0.6% / -0.7% |\n| Every other raw row | flat |",
+        "measurements" : [
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "citm_catalog",
+            "rowLabel" : "CITM catalog, typed bulk / 16KB",
+            "unit" : "% / +25.0%",
+            "value" : 24.8
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter full, typed bulk / 16KB",
+            "unit" : "% / +10.8%",
+            "value" : 10.7
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 structured response, typed",
+            "unit" : "%",
+            "value" : 9.9
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "github_events",
+            "rowLabel" : "GitHub events, typed",
+            "unit" : "%",
+            "value" : 9.5
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018, typed bulk / 16KB",
+            "unit" : "% / +6.0%",
+            "value" : 6.4
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 workspace edit, typed",
+            "unit" : "% [+0.3 .. +7.8]",
+            "value" : 1
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "twitterescaped",
+            "rowLabel" : "Twitter, Twitter escaped, Twitter spaced, typed",
+            "unit" : "% .. +0.9%",
+            "value" : 0.8
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message, typed",
+            "unit" : "%",
+            "value" : 0.8
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Canada / Mesh, typed",
+            "unit" : "% / +0.2%",
+            "value" : 0.3
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018, raw bulk / 16KB",
+            "unit" : "% / -1.5%",
+            "value" : -1.6
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Canada, raw bulk / 16KB",
+            "unit" : "% / -0.7%",
+            "value" : -0.6
+          }
+        ],
+        "parentPath" : "landed-container-members-open-with-one-copy-and-no-closure-retain",
+        "path" : "landed-container-members-open-with-one-copy-and-no-closure-retain/measured-the-full-gate",
+        "slug" : "measured-the-full-gate",
+        "summary" : "v3 against 5a61414f, 3 rounds:",
+        "tables" : [
+          {
+            "headers" : [
+              "Row",
+              "Change"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "CITM catalog, typed bulk / 16KB"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+24.8% / +25.0%",
+                  "unit" : "% / +25.0%",
+                  "value" : 24.8
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter full, typed bulk / 16KB"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+10.7% / +10.8%",
+                  "unit" : "% / +10.8%",
+                  "value" : 10.7
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Qwen 3 structured response, typed"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+9.9%",
+                  "unit" : "%",
+                  "value" : 9.9
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "GitHub events, typed"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+9.5%",
+                  "unit" : "%",
+                  "value" : 9.5
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "GSoC 2018, typed bulk / 16KB"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+6.4% / +6.0%",
+                  "unit" : "% / +6.0%",
+                  "value" : 6.4
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Qwen 3 workspace edit, typed"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.0% [+0.3 .. +7.8]",
+                  "unit" : "% [+0.3 .. +7.8]",
+                  "value" : 1
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter, Twitter escaped, Twitter spaced, typed"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.8% .. +0.9%",
+                  "unit" : "% .. +0.9%",
+                  "value" : 0.8
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "LLM message, typed"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.8%",
+                  "unit" : "%",
+                  "value" : 0.8
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Canada / Mesh, typed"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.3% / +0.2%",
+                  "unit" : "% / +0.2%",
+                  "value" : 0.3
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "GSoC 2018, raw bulk / 16KB"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-1.6% / -1.5%",
+                  "unit" : "% / -1.5%",
+                  "value" : -1.6
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Canada, raw bulk / 16KB"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-0.6% / -0.7%",
+                  "unit" : "% / -0.7%",
+                  "value" : -0.6
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Every other raw row"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "flat"
+                }
+              ]
+            ]
+          }
+        ],
+        "title" : "Measured: the full gate",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Landed: the escaped string tail, 64 bytes at a time on arm64",
+        "codeBlocks" : [
+
+        ],
+        "level" : 2,
+        "line" : 5559,
+        "markdown" : "*Recorded 2026-11-09.*\n\n`coalescedEscapedStringTail` restarts its 16-byte scan at every escape and leaves it through a\ndata-dependent reduction: one mispredicted branch per escape. Census of the escaped tails:\n\n| Payload | Bytes in escaped tails | Escapes | Shape |\n| --- | ---: | --- | --- |\n| LLM message | 96.4% | 14,222 simple, 0 `\\u` | 546 tails, median 1,870 B; runs between escapes median 9 B, mean 68 B; 5,833 of 15,855 blocks hold an escape, 5,080 hold non-ASCII |\n| GSoC 2018 | 47.7% | 13,721 simple, 1,292 `\\u` | no non-ASCII; 16,108 of 23,973 blocks hold no escape |\n| Twitter escaped | 36.7% | 1,228 simple, 31,818 `\\u` | 10.4 escapes per block |\n\n`stream_parsing_unescape_blocks` (`StreamParsingShims/Unescape.c`, out of line) copies string\ncontent to the coalescing buffer 64 bytes at a time, decoding escapes and validating UTF-8 in the\nsame pass, with no branch on where the escapes are. Every block is stored whole, and two escapes\nare decoded whether or not the block has two: an absent one is given position 64, where its stores\nland past the output cursor. A third escape, a stop and `\\uXXXX` (surrogate pairs included) take\none out-of-line walk of the block. UTF-8 is checked over the source with\n`stream_parsing_utf8_block_errors`: one vector placed a byte ahead of the block's first non-ASCII\ngroup, all four when the non-ASCII bytes span more than three groups, for sixteen blocks from any\nblock with a non-ASCII byte, and none in text without one. The result comes back in two registers\n(bytes consumed; bytes produced shifted left two, with the reason in the low bits).\n\n`JSONParser.coalescedEscapedBlocks` calls it at the top of the tail's loop, on entry and again\nafter the per-run loop takes a run of 64 bytes or more. The kernel hands the value back to the\nper-run loop at the closing quote, at anything with a diagnostic, within 139 bytes of the chunk\nend, and after sixteen blocks with no escape. The per-run loop is the fallback for all of them,\nso error offsets are its own. x86_64 and the portable build keep the per-run loop alone.\n\nMutations of the carry, trimming, windowing, slot offset, quiet and invalid exits, the terminator\nconstant, the validation run and the `\\u` rules were each caught by `EscapedTailBlockTests`.",
+        "measurements" : [
+          {
+            "column" : "Bytes in escaped tails",
+            "isDelta" : false,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message",
+            "unit" : "%",
+            "value" : 96.4
+          },
+          {
+            "column" : "Escapes",
+            "isDelta" : false,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message",
+            "unit" : "simple, 0 \\u",
+            "value" : 14222
+          },
+          {
+            "column" : "Shape",
+            "isDelta" : false,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message",
+            "unit" : "tails, median 1,870 B; runs between escapes median 9 B, mean 68 B; 5,833 of 15,855 blocks hold an escape, 5,080 hold non-ASCII",
+            "value" : 546
+          },
+          {
+            "column" : "Bytes in escaped tails",
+            "isDelta" : false,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018",
+            "unit" : "%",
+            "value" : 47.7
+          },
+          {
+            "column" : "Escapes",
+            "isDelta" : false,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018",
+            "unit" : "simple, 1,292 \\u",
+            "value" : 13721
+          },
+          {
+            "column" : "Bytes in escaped tails",
+            "isDelta" : false,
+            "payload" : "twitterescaped",
+            "rowLabel" : "Twitter escaped",
+            "unit" : "%",
+            "value" : 36.7
+          },
+          {
+            "column" : "Escapes",
+            "isDelta" : false,
+            "payload" : "twitterescaped",
+            "rowLabel" : "Twitter escaped",
+            "unit" : "simple, 31,818 \\u",
+            "value" : 1228
+          },
+          {
+            "column" : "Shape",
+            "isDelta" : false,
+            "payload" : "twitterescaped",
+            "rowLabel" : "Twitter escaped",
+            "unit" : "escapes per block",
+            "value" : 10.4
+          }
+        ],
+        "path" : "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64",
+        "slug" : "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64",
+        "summary" : "coalescedEscapedStringTail restarts its 16-byte scan at every escape and leaves it through a data-dependent reduction: one mispredicted branch per escape. Census of the escaped tails:",
+        "tables" : [
+          {
+            "headers" : [
+              "Payload",
+              "Bytes in escaped tails",
+              "Escapes",
+              "Shape"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "LLM message"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "96.4%",
+                  "unit" : "%",
+                  "value" : 96.4
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "14,222 simple, 0 \\u",
+                  "unit" : "simple, 0 \\u",
+                  "value" : 14222
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "546 tails, median 1,870 B; runs between escapes median 9 B, mean 68 B; 5,833 of 15,855 blocks hold an escape, 5,080 hold non-ASCII",
+                  "unit" : "tails, median 1,870 B; runs between escapes median 9 B, mean 68 B; 5,833 of 15,855 blocks hold an escape, 5,080 hold non-ASCII",
+                  "value" : 546
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "GSoC 2018"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "47.7%",
+                  "unit" : "%",
+                  "value" : 47.7
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "13,721 simple, 1,292 \\u",
+                  "unit" : "simple, 1,292 \\u",
+                  "value" : 13721
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "no non-ASCII; 16,108 of 23,973 blocks hold no escape"
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter escaped"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "36.7%",
+                  "unit" : "%",
+                  "value" : 36.7
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "1,228 simple, 31,818 \\u",
+                  "unit" : "simple, 31,818 \\u",
+                  "value" : 1228
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "10.4 escapes per block",
+                  "unit" : "escapes per block",
+                  "value" : 10.4
+                }
+              ]
+            ]
+          }
+        ],
+        "title" : "Landed: the escaped string tail, 64 bytes at a time on arm64",
+        "verdict" : "landed"
+      },
+      {
+        "chapter" : "Landed: the escaped string tail, 64 bytes at a time on arm64",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 5592,
+        "markdown" : "*Recorded 2026-11-09.*\n\nThe first kernel (v1) branched on \"this block is clean\" (one `umaxv` over stops and raw bytes),\nwalked the stop mask with `ctz` otherwise, validated decoded output per stretch of non-ASCII\nblocks, and was skipped when it made under 16 bytes of progress. Against 5a61414f, 3 rounds: LLM\nraw -0.6% [-2.3 .. +3.3], typed -3.5% [-5.3 .. +1.3]; GSoC raw +4.0%, typed 0.0%; Qwen edit raw\n+11.8%, typed +1.7%; Twitter escaped raw -3.8%, typed -3.7%. The kernel was 72.7% self time on raw\nLLM, with the hot PCs at the landing pads of the clean-block branch and the mask walk's exit: the\nsame number of unpredictable events, one per block instead of one per escape, plus 3,069 validator\ncalls.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64",
+        "path" : "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64/rejected-a-block-kernel-that-branches-on-the-escapes",
+        "slug" : "rejected-a-block-kernel-that-branches-on-the-escapes",
+        "summary" : "The first kernel (v1) branched on \"this block is clean\" (one umaxv over stops and raw bytes), walked the stop mask with ctz otherwise, validated decoded output per stretch of non-ASCII blocks, and was skipped when it made under 16 bytes of progress. Against…",
+        "tables" : [
+
+        ],
+        "title" : "Rejected: a block kernel that branches on the escapes",
+        "verdict" : "rejected"
+      },
+      {
+        "chapter" : "Landed: the escaped string tail, 64 bytes at a time on arm64",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 5605,
+        "markdown" : "*Recorded 2026-11-09.*\n\nThe kernel alone over every escaped tail, ns per 64-byte block:\n\n| Kernel | LLM message | GSoC 2018 |\n| --- | ---: | ---: |\n| v3: branch-free, two escape slots, all four UTF-8 vectors on high blocks | 12.4 | 8.7 |\n| v4: validation sticky for 16 blocks | 12.4 | 8.7 |\n| v5: one UTF-8 vector at the first non-ASCII group | 9.70 | 8.65 |\n\nAblation of v4 on LLM, cumulative: without validation 7.67, then without the second slot 6.49,\nwithout both slots 6.11. A clean all-ASCII block: 6.25 with the slots, 4.3 without. That puts\nvalidation at 4.7 ns a block (38%), the slots at 1.6, the base at 4.5 and mispredicts at about 1.5.",
+        "measurements" : [
+          {
+            "column" : "LLM message",
+            "isDelta" : false,
+            "payload" : "llm_message",
+            "rowLabel" : "v3: branch-free, two escape slots, all four UTF-8 vectors on high blocks",
+            "value" : 12.4
+          },
+          {
+            "column" : "LLM message",
+            "isDelta" : false,
+            "payload" : "llm_message",
+            "rowLabel" : "v4: validation sticky for 16 blocks",
+            "value" : 12.4
+          },
+          {
+            "column" : "LLM message",
+            "isDelta" : false,
+            "payload" : "llm_message",
+            "rowLabel" : "v5: one UTF-8 vector at the first non-ASCII group",
+            "value" : 9.7
+          },
+          {
+            "column" : "GSoC 2018",
+            "isDelta" : false,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "v3: branch-free, two escape slots, all four UTF-8 vectors on high blocks",
+            "value" : 8.7
+          },
+          {
+            "column" : "GSoC 2018",
+            "isDelta" : false,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "v4: validation sticky for 16 blocks",
+            "value" : 8.7
+          },
+          {
+            "column" : "GSoC 2018",
+            "isDelta" : false,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "v5: one UTF-8 vector at the first non-ASCII group",
+            "value" : 8.65
+          }
+        ],
+        "parentPath" : "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64",
+        "path" : "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64/measured-where-a-block-s-time-goes",
+        "slug" : "measured-where-a-block-s-time-goes",
+        "summary" : "The kernel alone over every escaped tail, ns per 64-byte block:",
+        "tables" : [
+          {
+            "headers" : [
+              "Kernel",
+              "LLM message",
+              "GSoC 2018"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "v3: branch-free, two escape slots, all four UTF-8 vectors on high blocks"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "12.4",
+                  "value" : 12.4
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "8.7",
+                  "value" : 8.7
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "v4: validation sticky for 16 blocks"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "12.4",
+                  "value" : 12.4
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "8.7",
+                  "value" : 8.7
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "v5: one UTF-8 vector at the first non-ASCII group"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "9.70",
+                  "value" : 9.7
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "8.65",
+                  "value" : 8.65
+                }
+              ]
+            ]
+          }
+        ],
+        "title" : "Measured: where a block's time goes",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Landed: the escaped string tail, 64 bytes at a time on arm64",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 5621,
+        "markdown" : "*Recorded 2026-11-09.*\n\nLLM 9.66 → 9.82 ns a block, clean 6.44 → 6.40. The loop is uop-throughput bound (about 110 uops,\nIPC about 5.5), not latency bound.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64",
+        "path" : "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64/rejected-breaking-the-carry-recurrence-with-a-predicted-branch",
+        "slug" : "rejected-breaking-the-carry-recurrence-with-a-predicted-branch",
+        "summary" : "LLM 9.66 → 9.82 ns a block, clean 6.44 → 6.40. The loop is uop-throughput bound (about 110 uops, IPC about 5.5), not latency bound.",
+        "tables" : [
+
+        ],
+        "title" : "Rejected: breaking the carry recurrence with a predicted branch",
+        "verdict" : "rejected"
+      },
+      {
+        "chapter" : "Landed: the escaped string tail, 64 bytes at a time on arm64",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 5628,
+        "markdown" : "*Recorded 2026-11-09.*\n\nOn a synthetic 1 MB value after one escape the whole parse ran 9,871 MB/s with v5 against 24,526\nfor the baseline: every block pays for two escapes it does not have, and the 16-byte scan pays for\nnone and does not copy a run longer than the buffer. v6 returns `QUIET` after N escape-free blocks\n(24,125 MB/s on that value at N = 8). Whole parse, raw MB/s, two passes:\n\n| Payload | Base | N = 4 | N = 8 | N = 16 |\n| --- | ---: | ---: | ---: | ---: |\n| GSoC 2018 | 4669 / 4778 | 4568 / 4696 | 4633 / 4751 | 4620 / 4756 |\n| LLM message | 3526 / 3604 | 4183 / 4315 | 5136 / 5228 | 5053 / 5270 |\n| Qwen 3 workspace edit | 1982 / 2007 | 2051 / 2062 | 2065 / 2065 | 2073 / 2075 |\n| Twitter | 2225 / 2227 | 2253 / 2239 | 2253 / 2220 | 2259 / 2239 |\n| Synthetic, an escape per 256 B | 9721 / 9696 | 8283 / 8595 | 9431 / 9462 | 9768 / 9747 |\n\nN = 16 landed.",
+        "measurements" : [
+          {
+            "column" : "Base",
+            "isDelta" : false,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018",
+            "unit" : "/ 4778",
+            "value" : 4669
+          },
+          {
+            "column" : "N = 4",
+            "isDelta" : false,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018",
+            "unit" : "/ 4696",
+            "value" : 4568
+          },
+          {
+            "column" : "N = 8",
+            "isDelta" : false,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018",
+            "unit" : "/ 4751",
+            "value" : 4633
+          },
+          {
+            "column" : "N = 16",
+            "isDelta" : false,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018",
+            "unit" : "/ 4756",
+            "value" : 4620
+          },
+          {
+            "column" : "Base",
+            "isDelta" : false,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message",
+            "unit" : "/ 3604",
+            "value" : 3526
+          },
+          {
+            "column" : "N = 4",
+            "isDelta" : false,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message",
+            "unit" : "/ 4315",
+            "value" : 4183
+          },
+          {
+            "column" : "N = 8",
+            "isDelta" : false,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message",
+            "unit" : "/ 5228",
+            "value" : 5136
+          },
+          {
+            "column" : "N = 16",
+            "isDelta" : false,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message",
+            "unit" : "/ 5270",
+            "value" : 5053
+          },
+          {
+            "column" : "Base",
+            "isDelta" : false,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 workspace edit",
+            "unit" : "/ 2007",
+            "value" : 1982
+          },
+          {
+            "column" : "N = 4",
+            "isDelta" : false,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 workspace edit",
+            "unit" : "/ 2062",
+            "value" : 2051
+          },
+          {
+            "column" : "N = 8",
+            "isDelta" : false,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 workspace edit",
+            "unit" : "/ 2065",
+            "value" : 2065
+          },
+          {
+            "column" : "N = 16",
+            "isDelta" : false,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 workspace edit",
+            "unit" : "/ 2075",
+            "value" : 2073
+          },
+          {
+            "column" : "Base",
+            "isDelta" : false,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter",
+            "unit" : "/ 2227",
+            "value" : 2225
+          },
+          {
+            "column" : "N = 4",
+            "isDelta" : false,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter",
+            "unit" : "/ 2239",
+            "value" : 2253
+          },
+          {
+            "column" : "N = 8",
+            "isDelta" : false,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter",
+            "unit" : "/ 2220",
+            "value" : 2253
+          },
+          {
+            "column" : "N = 16",
+            "isDelta" : false,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter",
+            "unit" : "/ 2239",
+            "value" : 2259
+          }
+        ],
+        "parentPath" : "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64",
+        "path" : "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64/landed-long-runs-without-an-escape-go-back-to-the-per-run-loop",
+        "slug" : "landed-long-runs-without-an-escape-go-back-to-the-per-run-loop",
+        "summary" : "On a synthetic 1 MB value after one escape the whole parse ran 9,871 MB/s with v5 against 24,526 for the baseline: every block pays for two escapes it does not have, and the 16-byte scan pays for none and does not copy a run longer than the buffer. v6 returns…",
+        "tables" : [
+          {
+            "headers" : [
+              "Payload",
+              "Base",
+              "N = 4",
+              "N = 8",
+              "N = 16"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "GSoC 2018"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "4669 / 4778",
+                  "unit" : "/ 4778",
+                  "value" : 4669
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "4568 / 4696",
+                  "unit" : "/ 4696",
+                  "value" : 4568
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "4633 / 4751",
+                  "unit" : "/ 4751",
+                  "value" : 4633
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "4620 / 4756",
+                  "unit" : "/ 4756",
+                  "value" : 4620
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "LLM message"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "3526 / 3604",
+                  "unit" : "/ 3604",
+                  "value" : 3526
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "4183 / 4315",
+                  "unit" : "/ 4315",
+                  "value" : 4183
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "5136 / 5228",
+                  "unit" : "/ 5228",
+                  "value" : 5136
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "5053 / 5270",
+                  "unit" : "/ 5270",
+                  "value" : 5053
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Qwen 3 workspace edit"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "1982 / 2007",
+                  "unit" : "/ 2007",
+                  "value" : 1982
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "2051 / 2062",
+                  "unit" : "/ 2062",
+                  "value" : 2051
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "2065 / 2065",
+                  "unit" : "/ 2065",
+                  "value" : 2065
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "2073 / 2075",
+                  "unit" : "/ 2075",
+                  "value" : 2073
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "2225 / 2227",
+                  "unit" : "/ 2227",
+                  "value" : 2225
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "2253 / 2239",
+                  "unit" : "/ 2239",
+                  "value" : 2253
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "2253 / 2220",
+                  "unit" : "/ 2220",
+                  "value" : 2253
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "2259 / 2239",
+                  "unit" : "/ 2239",
+                  "value" : 2259
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Synthetic, an escape per 256 B"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "9721 / 9696",
+                  "unit" : "/ 9696",
+                  "value" : 9721
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "8283 / 8595",
+                  "unit" : "/ 8595",
+                  "value" : 8283
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "9431 / 9462",
+                  "unit" : "/ 9462",
+                  "value" : 9431
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "9768 / 9747",
+                  "unit" : "/ 9747",
+                  "value" : 9768
+                }
+              ]
+            ]
+          }
+        ],
+        "title" : "Landed: long runs without an escape go back to the per-run loop",
+        "verdict" : "landed"
+      },
+      {
+        "chapter" : "Landed: the escaped string tail, 64 bytes at a time on arm64",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 5647,
+        "markdown" : "*Recorded 2026-11-09.*\n\nClean blocks fell to 3.67 ns, but LLM went 9.68 → 10.1 ns a block with N = 16 and 11.3 with N = 2.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64",
+        "path" : "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64/rejected-skipping-the-escape-slots-inside-the-kernel-after-a-quiet-stretch",
+        "slug" : "rejected-skipping-the-escape-slots-inside-the-kernel-after-a-quiet-stretch",
+        "summary" : "Clean blocks fell to 3.67 ns, but LLM went 9.68 → 10.1 ns a block with N = 16 and 11.3 with N = 2.",
+        "tables" : [
+
+        ],
+        "title" : "Rejected: skipping the escape slots inside the kernel after a quiet stretch",
+        "verdict" : "rejected"
+      },
+      {
+        "chapter" : "Landed: the escaped string tail, 64 bytes at a time on arm64",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 5653,
+        "markdown" : "*Recorded 2026-11-09.*\n\nStopping at each `\\u` for the caller to decode cost 17.3 ns an escape (out and back in, the block\nread twice); GSoC's 1,292 make that 22 µs, 3.2% of its raw parse. Decoding in the kernel's walk\ntook a synthetic `\\u` every 256 bytes from 168.6 to 150.0 µs; outlining that decode measured\n161–163 against 145–150 µs and was not kept. Removing the entry heuristic (skip the kernel after a\ncall that made under 16 bytes of progress) took raw Twitter escaped 1284 → 1447 MB/s (+12.7%) and\ntyped 1859 → 1942 (+4.7%). Returning the result in two registers instead of through a pointer (no\naddress-taken local, no stack protector) took raw Qwen edit to 2105 MB/s, from 2007 at baseline\nand 2045 before it, and typed to 837, from 845 at baseline and 821 before it.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64",
+        "path" : "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64/landed-uxxxx-decoded-in-the-kernel-no-entry-heuristic-the-result-in-registers",
+        "slug" : "landed-uxxxx-decoded-in-the-kernel-no-entry-heuristic-the-result-in-registers",
+        "summary" : "Stopping at each \\u for the caller to decode cost 17.3 ns an escape (out and back in, the block read twice); GSoC's 1,292 make that 22 µs, 3.2% of its raw parse. Decoding in the kernel's walk took a synthetic \\u every 256 bytes from 168.6 to 150.0 µs;…",
+        "tables" : [
+
+        ],
+        "title" : "Landed: `\\uXXXX` decoded in the kernel, no entry heuristic, the result in registers",
+        "verdict" : "landed"
+      },
+      {
+        "chapter" : "Landed: the escaped string tail, 64 bytes at a time on arm64",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 5666,
+        "markdown" : "*Recorded 2026-11-09.*\n\nTyped Qwen edit 821 → 753 / 805 MB/s.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64",
+        "path" : "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64/rejected-declining-values-that-end-inside-their-first-block",
+        "slug" : "rejected-declining-values-that-end-inside-their-first-block",
+        "summary" : "Typed Qwen edit 821 → 753 / 805 MB/s.",
+        "tables" : [
+
+        ],
+        "title" : "Rejected: declining values that end inside their first block",
+        "verdict" : "rejected"
+      },
+      {
+        "chapter" : "Landed: the escaped string tail, 64 bytes at a time on arm64",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 5672,
+        "markdown" : "*Recorded 2026-11-09.*\n\nAligned, 3 rounds, median p0 [range] against 5a61414f. v7 is the quiet-run kernel before the\n`\\u` decode; v9 is what landed. The Mesh 16KB rows belong to the chunk-cut change and are left out.\n\n| Row | v7 raw / typed | v9 raw | v9 typed |\n| --- | ---: | ---: | ---: |\n| LLM message - bulk | +44.8% / +25.3% | +43.5% [+43.3 .. +43.7] | +25.4% [+25.4 .. +32.9] |\n| LLM message - 16KB chunks | +44.9% / +24.7% | +44.4% [+43.8 .. +44.4] | +25.2% [+24.5 .. +25.7] |\n| LLM message - byte by byte | 0.0% / -0.2% | +0.2% | +1.8% |\n| Twitter escaped - bulk | -1.4% / -0.9% | +12.9% [+12.7 .. +12.9] | +5.8% [+5.8 .. +5.9] |\n| Twitter escaped - byte by byte | -1.0% / -0.5% | +0.4% | +0.3% |\n| Qwen 3 workspace edit - bulk | +1.1% / -2.0% | +3.5% [+2.7 .. +6.6] | -0.6% [-0.8 .. -0.4] |\n| GSoC 2018 - bulk | -1.7% / +0.2% | -0.4% [-0.7 .. +1.8] | +0.4% [+0.3 .. +1.9] |\n| GSoC 2018 - 16KB chunks | -0.7% / +0.4% | +1.1% | +1.1% |\n| GitHub events - bulk | +1.7% / -0.4% | +1.4% | +1.2% |\n| Twitter - bulk | +0.8% / +0.1% | +0.9% | +0.2% |\n| Twitter spaced - bulk | +1.1% / +1.4% | +1.3% | +1.0% |\n| Twitter full - bulk / 16KB (typed) | +0.3% | | +0.9% / +1.1% |\n| CITM catalog - bulk | 0.0% / -0.1% | +0.1% | +0.3% |\n| Canada - bulk | -0.4% / -1.2% | -0.6% | -0.3% |\n| Mesh - bulk | 0.0% / -0.3% | -0.3% | +0.2% |\n| Qwen 3 structured response - bulk | 0.0% / +0.7% | 0.0% | +1.0% |\n\nThe typed gain is half the raw one: the flush into `StreamString` is a second copy the kernel does\nnot touch. The three UTF-8 table getters are calls in out-of-module sink specialisations, three\n`bl` per kernel entry.",
+        "measurements" : [
+          {
+            "column" : "v7 raw / typed",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message - bulk",
+            "unit" : "% / +25.3%",
+            "value" : 44.8
+          },
+          {
+            "column" : "v9 raw",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message - bulk",
+            "unit" : "% [+43.3 .. +43.7]",
+            "value" : 43.5
+          },
+          {
+            "column" : "v9 typed",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message - bulk",
+            "unit" : "% [+25.4 .. +32.9]",
+            "value" : 25.4
+          },
+          {
+            "column" : "v7 raw / typed",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message - 16KB chunks",
+            "unit" : "% / +24.7%",
+            "value" : 44.9
+          },
+          {
+            "column" : "v9 raw",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message - 16KB chunks",
+            "unit" : "% [+43.8 .. +44.4]",
+            "value" : 44.4
+          },
+          {
+            "column" : "v9 typed",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message - 16KB chunks",
+            "unit" : "% [+24.5 .. +25.7]",
+            "value" : 25.2
+          },
+          {
+            "column" : "v7 raw / typed",
+            "isDelta" : false,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message - byte by byte",
+            "unit" : "% / -0.2%",
+            "value" : 0
+          },
+          {
+            "column" : "v9 raw",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message - byte by byte",
+            "unit" : "%",
+            "value" : 0.2
+          },
+          {
+            "column" : "v9 typed",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message - byte by byte",
+            "unit" : "%",
+            "value" : 1.8
+          },
+          {
+            "column" : "v7 raw / typed",
+            "isDelta" : true,
+            "payload" : "twitterescaped",
+            "rowLabel" : "Twitter escaped - bulk",
+            "unit" : "% / -0.9%",
+            "value" : -1.4
+          },
+          {
+            "column" : "v9 raw",
+            "isDelta" : true,
+            "payload" : "twitterescaped",
+            "rowLabel" : "Twitter escaped - bulk",
+            "unit" : "% [+12.7 .. +12.9]",
+            "value" : 12.9
+          },
+          {
+            "column" : "v9 typed",
+            "isDelta" : true,
+            "payload" : "twitterescaped",
+            "rowLabel" : "Twitter escaped - bulk",
+            "unit" : "% [+5.8 .. +5.9]",
+            "value" : 5.8
+          },
+          {
+            "column" : "v7 raw / typed",
+            "isDelta" : true,
+            "payload" : "twitterescaped",
+            "rowLabel" : "Twitter escaped - byte by byte",
+            "unit" : "% / -0.5%",
+            "value" : -1
+          },
+          {
+            "column" : "v9 raw",
+            "isDelta" : true,
+            "payload" : "twitterescaped",
+            "rowLabel" : "Twitter escaped - byte by byte",
+            "unit" : "%",
+            "value" : 0.4
+          },
+          {
+            "column" : "v9 typed",
+            "isDelta" : true,
+            "payload" : "twitterescaped",
+            "rowLabel" : "Twitter escaped - byte by byte",
+            "unit" : "%",
+            "value" : 0.3
+          },
+          {
+            "column" : "v7 raw / typed",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 workspace edit - bulk",
+            "unit" : "% / -2.0%",
+            "value" : 1.1
+          },
+          {
+            "column" : "v9 raw",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 workspace edit - bulk",
+            "unit" : "% [+2.7 .. +6.6]",
+            "value" : 3.5
+          },
+          {
+            "column" : "v9 typed",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 workspace edit - bulk",
+            "unit" : "% [-0.8 .. -0.4]",
+            "value" : -0.6
+          },
+          {
+            "column" : "v7 raw / typed",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018 - bulk",
+            "unit" : "% / +0.2%",
+            "value" : -1.7
+          },
+          {
+            "column" : "v9 raw",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018 - bulk",
+            "unit" : "% [-0.7 .. +1.8]",
+            "value" : -0.4
+          },
+          {
+            "column" : "v9 typed",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018 - bulk",
+            "unit" : "% [+0.3 .. +1.9]",
+            "value" : 0.4
+          },
+          {
+            "column" : "v7 raw / typed",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018 - 16KB chunks",
+            "unit" : "% / +0.4%",
+            "value" : -0.7
+          },
+          {
+            "column" : "v9 raw",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018 - 16KB chunks",
+            "unit" : "%",
+            "value" : 1.1
+          },
+          {
+            "column" : "v9 typed",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018 - 16KB chunks",
+            "unit" : "%",
+            "value" : 1.1
+          },
+          {
+            "column" : "v7 raw / typed",
+            "isDelta" : true,
+            "payload" : "github_events",
+            "rowLabel" : "GitHub events - bulk",
+            "unit" : "% / -0.4%",
+            "value" : 1.7
+          },
+          {
+            "column" : "v9 raw",
+            "isDelta" : true,
+            "payload" : "github_events",
+            "rowLabel" : "GitHub events - bulk",
+            "unit" : "%",
+            "value" : 1.4
+          },
+          {
+            "column" : "v9 typed",
+            "isDelta" : true,
+            "payload" : "github_events",
+            "rowLabel" : "GitHub events - bulk",
+            "unit" : "%",
+            "value" : 1.2
+          },
+          {
+            "column" : "v7 raw / typed",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter - bulk",
+            "unit" : "% / +0.1%",
+            "value" : 0.8
+          },
+          {
+            "column" : "v9 raw",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter - bulk",
+            "unit" : "%",
+            "value" : 0.9
+          },
+          {
+            "column" : "v9 typed",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter - bulk",
+            "unit" : "%",
+            "value" : 0.2
+          },
+          {
+            "column" : "v7 raw / typed",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter spaced - bulk",
+            "unit" : "% / +1.4%",
+            "value" : 1.1
+          },
+          {
+            "column" : "v9 raw",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter spaced - bulk",
+            "unit" : "%",
+            "value" : 1.3
+          },
+          {
+            "column" : "v9 typed",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter spaced - bulk",
+            "unit" : "%",
+            "value" : 1
+          },
+          {
+            "column" : "v7 raw / typed",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter full - bulk / 16KB (typed)",
+            "unit" : "%",
+            "value" : 0.3
+          },
+          {
+            "column" : "v9 typed",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter full - bulk / 16KB (typed)",
+            "unit" : "% / +1.1%",
+            "value" : 0.9
+          },
+          {
+            "column" : "v7 raw / typed",
+            "isDelta" : false,
+            "payload" : "citm_catalog",
+            "rowLabel" : "CITM catalog - bulk",
+            "unit" : "% / -0.1%",
+            "value" : 0
+          },
+          {
+            "column" : "v9 raw",
+            "isDelta" : true,
+            "payload" : "citm_catalog",
+            "rowLabel" : "CITM catalog - bulk",
+            "unit" : "%",
+            "value" : 0.1
+          },
+          {
+            "column" : "v9 typed",
+            "isDelta" : true,
+            "payload" : "citm_catalog",
+            "rowLabel" : "CITM catalog - bulk",
+            "unit" : "%",
+            "value" : 0.3
+          },
+          {
+            "column" : "v7 raw / typed",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Canada - bulk",
+            "unit" : "% / -1.2%",
+            "value" : -0.4
+          },
+          {
+            "column" : "v9 raw",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Canada - bulk",
+            "unit" : "%",
+            "value" : -0.6
+          },
+          {
+            "column" : "v9 typed",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Canada - bulk",
+            "unit" : "%",
+            "value" : -0.3
+          },
+          {
+            "column" : "v7 raw / typed",
+            "isDelta" : false,
+            "payload" : "mesh",
+            "rowLabel" : "Mesh - bulk",
+            "unit" : "% / -0.3%",
+            "value" : 0
+          },
+          {
+            "column" : "v9 raw",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Mesh - bulk",
+            "unit" : "%",
+            "value" : -0.3
+          },
+          {
+            "column" : "v9 typed",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Mesh - bulk",
+            "unit" : "%",
+            "value" : 0.2
+          },
+          {
+            "column" : "v7 raw / typed",
+            "isDelta" : false,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 structured response - bulk",
+            "unit" : "% / +0.7%",
+            "value" : 0
+          },
+          {
+            "column" : "v9 raw",
+            "isDelta" : false,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 structured response - bulk",
+            "unit" : "%",
+            "value" : 0
+          },
+          {
+            "column" : "v9 typed",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 structured response - bulk",
+            "unit" : "%",
+            "value" : 1
+          }
+        ],
+        "parentPath" : "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64",
+        "path" : "landed-the-escaped-string-tail-64-bytes-at-a-time-on-arm64/measured-the-gate",
+        "slug" : "measured-the-gate",
+        "summary" : "Aligned, 3 rounds, median p0 [range] against 5a61414f. v7 is the quiet-run kernel before the \\u decode; v9 is what landed. The Mesh 16KB rows belong to the chunk-cut change and are left out.",
+        "tables" : [
+          {
+            "headers" : [
+              "Row",
+              "v7 raw / typed",
+              "v9 raw",
+              "v9 typed"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "LLM message - bulk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+44.8% / +25.3%",
+                  "unit" : "% / +25.3%",
+                  "value" : 44.8
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+43.5% [+43.3 .. +43.7]",
+                  "unit" : "% [+43.3 .. +43.7]",
+                  "value" : 43.5
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+25.4% [+25.4 .. +32.9]",
+                  "unit" : "% [+25.4 .. +32.9]",
+                  "value" : 25.4
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "LLM message - 16KB chunks"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+44.9% / +24.7%",
+                  "unit" : "% / +24.7%",
+                  "value" : 44.9
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+44.4% [+43.8 .. +44.4]",
+                  "unit" : "% [+43.8 .. +44.4]",
+                  "value" : 44.4
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+25.2% [+24.5 .. +25.7]",
+                  "unit" : "% [+24.5 .. +25.7]",
+                  "value" : 25.2
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "LLM message - byte by byte"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "0.0% / -0.2%",
+                  "unit" : "% / -0.2%",
+                  "value" : 0
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.2%",
+                  "unit" : "%",
+                  "value" : 0.2
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.8%",
+                  "unit" : "%",
+                  "value" : 1.8
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter escaped - bulk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-1.4% / -0.9%",
+                  "unit" : "% / -0.9%",
+                  "value" : -1.4
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+12.9% [+12.7 .. +12.9]",
+                  "unit" : "% [+12.7 .. +12.9]",
+                  "value" : 12.9
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+5.8% [+5.8 .. +5.9]",
+                  "unit" : "% [+5.8 .. +5.9]",
+                  "value" : 5.8
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter escaped - byte by byte"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-1.0% / -0.5%",
+                  "unit" : "% / -0.5%",
+                  "value" : -1
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.4%",
+                  "unit" : "%",
+                  "value" : 0.4
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.3%",
+                  "unit" : "%",
+                  "value" : 0.3
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Qwen 3 workspace edit - bulk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.1% / -2.0%",
+                  "unit" : "% / -2.0%",
+                  "value" : 1.1
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+3.5% [+2.7 .. +6.6]",
+                  "unit" : "% [+2.7 .. +6.6]",
+                  "value" : 3.5
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-0.6% [-0.8 .. -0.4]",
+                  "unit" : "% [-0.8 .. -0.4]",
+                  "value" : -0.6
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "GSoC 2018 - bulk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-1.7% / +0.2%",
+                  "unit" : "% / +0.2%",
+                  "value" : -1.7
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-0.4% [-0.7 .. +1.8]",
+                  "unit" : "% [-0.7 .. +1.8]",
+                  "value" : -0.4
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.4% [+0.3 .. +1.9]",
+                  "unit" : "% [+0.3 .. +1.9]",
+                  "value" : 0.4
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "GSoC 2018 - 16KB chunks"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-0.7% / +0.4%",
+                  "unit" : "% / +0.4%",
+                  "value" : -0.7
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.1%",
+                  "unit" : "%",
+                  "value" : 1.1
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.1%",
+                  "unit" : "%",
+                  "value" : 1.1
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "GitHub events - bulk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.7% / -0.4%",
+                  "unit" : "% / -0.4%",
+                  "value" : 1.7
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.4%",
+                  "unit" : "%",
+                  "value" : 1.4
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.2%",
+                  "unit" : "%",
+                  "value" : 1.2
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter - bulk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.8% / +0.1%",
+                  "unit" : "% / +0.1%",
+                  "value" : 0.8
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.9%",
+                  "unit" : "%",
+                  "value" : 0.9
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.2%",
+                  "unit" : "%",
+                  "value" : 0.2
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter spaced - bulk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.1% / +1.4%",
+                  "unit" : "% / +1.4%",
+                  "value" : 1.1
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.3%",
+                  "unit" : "%",
+                  "value" : 1.3
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.0%",
+                  "unit" : "%",
+                  "value" : 1
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter full - bulk / 16KB (typed)"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.3%",
+                  "unit" : "%",
+                  "value" : 0.3
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : ""
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.9% / +1.1%",
+                  "unit" : "% / +1.1%",
+                  "value" : 0.9
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "CITM catalog - bulk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "0.0% / -0.1%",
+                  "unit" : "% / -0.1%",
+                  "value" : 0
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.1%",
+                  "unit" : "%",
+                  "value" : 0.1
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.3%",
+                  "unit" : "%",
+                  "value" : 0.3
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Canada - bulk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-0.4% / -1.2%",
+                  "unit" : "% / -1.2%",
+                  "value" : -0.4
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-0.6%",
+                  "unit" : "%",
+                  "value" : -0.6
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-0.3%",
+                  "unit" : "%",
+                  "value" : -0.3
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Mesh - bulk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "0.0% / -0.3%",
+                  "unit" : "% / -0.3%",
+                  "value" : 0
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-0.3%",
+                  "unit" : "%",
+                  "value" : -0.3
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.2%",
+                  "unit" : "%",
+                  "value" : 0.2
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Qwen 3 structured response - bulk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "0.0% / +0.7%",
+                  "unit" : "% / +0.7%",
+                  "value" : 0
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "0.0%",
+                  "unit" : "%",
+                  "value" : 0
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.0%",
+                  "unit" : "%",
+                  "value" : 1
+                }
+              ]
+            ]
+          }
+        ],
+        "title" : "Measured: the gate",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Landed: whole table strings copied without `memmove`; long-key tails compared by word",
+        "codeBlocks" : [
+
+        ],
+        "level" : 2,
+        "line" : 5702,
+        "markdown" : "*Recorded 2026-11-09.*\n\nIn the baseline binary `PartialSink.writeTableString` called the `streamAppend` specialisation,\nwhose inline path was a `bl memmove` through a stub; `appendBlocked` called\n`swift_isUniquelyReferenced_native` and `memmove` per iteration and saved 12 callee-saved\nregisters. `streamFieldTailMatches` was an 8-byte loop followed by a byte loop.\n\n- `writeTableString` appends through `StreamString.appendWhole(utf8:)`. A value that stays inline\n  (at most 64 bytes) is copied by `streamCopyShortBytes`: overlapping 16-byte moves from both ends\n  and an 8/4/2/1 ladder below, never reading past the span. One that promotes from empty takes one\n  exact allocation and one copy in `promoteWholeInlineStorage`, skipping `appendBlocked`'s\n  uniqueness call and loop.\n- `streamFieldTailMatches` finishes a key longer than a word with 8-byte compares and one last\n  overlapping word ending at the key's end. It stays `@inline(never)`.\n\nThe chunk path (`append(utf8:)`, `appendBlocked`) is unchanged.",
+        "measurements" : [
+
+        ],
+        "path" : "landed-whole-table-strings-copied-without-memmove-long-key-tails-compared-by-word",
+        "slug" : "landed-whole-table-strings-copied-without-memmove-long-key-tails-compared-by-word",
+        "summary" : "In the baseline binary PartialSink.writeTableString called the streamAppend specialisation, whose inline path was a bl memmove through a stub; appendBlocked called swift_isUniquelyReferenced_native and memmove per iteration and saved 12 callee-saved…",
+        "tables" : [
+
+        ],
+        "title" : "Landed: whole table strings copied without `memmove`; long-key tails compared by word",
+        "verdict" : "landed"
+      },
+      {
+        "chapter" : "Landed: whole table strings copied without `memmove`; long-key tails compared by word",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 5721,
+        "markdown" : "*Recorded 2026-11-09.*\n\nv1 put the ladder on the inline path and on the blocked fragments; `stringChunk` then stopped\ninlining `streamAppend`. Under load (200–260), 3 rounds: GSoC +2.6%, GitHub +4.4%, Qwen edit\n+6.2%, Twitter full +3.7%, LLM byte by byte -6.9%. v5 kept the ladder there with the inline\nladder outlined into `appendInline`, the blocked one into `streamCopyFragment`, the exact\nallocation and the word tail compare; against base on a quiet machine: GSoC +3.0%, GitHub +4.7%, Qwen structured +5.5%,\nQwen edit +5.9%, Twitter full +3.9%, LLM bulk -3.3% [-3.3 .. +1.1], LLM byte by byte -9.9%\n[-13.6 .. -9.8]. In the baseline `parse<PartialSink>` a byte-fed chunk appends with the constant\nlength 1, which folds the `memmove` to one `strb`, inline and in the inlined `appendBlocked`. An\noutlined ladder makes that a call per byte; with the ladder in `appendBlocked`'s body, `parse` no\nlonger inlines it and a byte-fed chunk pays a call that saves 12 registers.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "landed-whole-table-strings-copied-without-memmove-long-key-tails-compared-by-word",
+        "path" : "landed-whole-table-strings-copied-without-memmove-long-key-tails-compared-by-word/rejected-a-copy-ladder-on-the-chunk-append-path",
+        "slug" : "rejected-a-copy-ladder-on-the-chunk-append-path",
+        "summary" : "v1 put the ladder on the inline path and on the blocked fragments; stringChunk then stopped inlining streamAppend. Under load (200–260), 3 rounds: GSoC +2.6%, GitHub +4.4%, Qwen edit +6.2%, Twitter full +3.7%, LLM byte by byte -6.9%. v5 kept the ladder there…",
+        "tables" : [
+
+        ],
+        "title" : "Rejected: a copy ladder on the chunk append path",
+        "verdict" : "rejected"
+      },
+      {
+        "chapter" : "Landed: whole table strings copied without `memmove`; long-key tails compared by word",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 5736,
+        "markdown" : "*Recorded 2026-11-09.*\n\nWith `@inline(__always)`, `PartialSink.key` went from 235 to 188 instructions and from 12\ncallee-saved registers to 6, but the linear scan became a call to an out-of-line\n`streamMatchField`. 3 rounds, load 50–130: Twitter -5.3% [-5.3 .. -2.6] and Twitter escaped -6.4%\n[-7.5 .. -3.4]; with the inline ladder outlined as well, -6.1% and -5.0%.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "landed-whole-table-strings-copied-without-memmove-long-key-tails-compared-by-word",
+        "path" : "landed-whole-table-strings-copied-without-memmove-long-key-tails-compared-by-word/rejected-streamfieldtailmatches-inlined",
+        "slug" : "rejected-streamfieldtailmatches-inlined",
+        "summary" : "With @inline(__always), PartialSink.key went from 235 to 188 instructions and from 12 callee-saved registers to 6, but the linear scan became a call to an out-of-line streamMatchField. 3 rounds, load 50–130: Twitter -5.3% [-5.3 .. -2.6] and Twitter escaped…",
+        "tables" : [
+
+        ],
+        "title" : "Rejected: `streamFieldTailMatches` inlined",
+        "verdict" : "rejected"
+      },
+      {
+        "chapter" : "Landed: whole table strings copied without `memmove`; long-key tails compared by word",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 5745,
+        "markdown" : "*Recorded 2026-11-09.*\n\nAttribution against 312c63d1, 3 rounds, load about 5, typed rows. v7 is `appendWhole` alone, v6\nadds the word tail compare:\n\n| Row | v7 | v6 |\n| --- | ---: | ---: |\n| GSoC 2018 | +2.8% [+2.8 .. +3.0] | +2.8% |\n| GitHub events | +4.8% [-0.9 .. +5.9] | +5.4% [+4.9 .. +6.0] |\n| Qwen 3 structured response | +5.4% [-0.7 .. +7.6] | +4.7% [+4.0 .. +4.7] |\n| Qwen 3 workspace edit | +3.7% | +4.7% [+2.7 .. +4.9] |\n| Twitter | +0.8% | +0.7% |\n| Twitter full | +2.4% [+2.4 .. +2.7] | +4.0% [+3.8 .. +4.6] |\n| CITM catalog | +0.2% | +0.4% |\n\nThe tail compare alone (v7 → v6): Twitter full +1.6% [+1.3 .. +1.8], the rest noise. Full gate,\nv6 against 312c63d1, 3 rounds:\n\n| Row | Change |\n| --- | ---: |\n| Twitter full, typed bulk / 16KB | +4.3% / +4.6% |\n| GitHub events, typed | +5.4% |\n| Qwen 3 workspace edit, typed | +5.3% |\n| Qwen 3 structured response, typed | +4.0% |\n| GSoC 2018, typed bulk / 16KB | +2.7% / +3.0% |\n| LLM message, typed | +0.9% |\n| Twitter, typed | +0.8% |\n| Byte-by-byte rows | 0 |\n| LLM message, raw bulk and 16KB | -2.6% [-2.9 .. -0.9] |\n| GSoC 2018, raw | +1.6% .. +1.9% |\n\nThe raw code is byte-identical in this build; `streamStringRun` and `streamStringRunStaging` moved\nby 64 bytes (64 mod 128), so the two raw rows are 128-byte line placement.",
+        "measurements" : [
+          {
+            "column" : "v7",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018",
+            "unit" : "% [+2.8 .. +3.0]",
+            "value" : 2.8
+          },
+          {
+            "column" : "v6",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018",
+            "unit" : "%",
+            "value" : 2.8
+          },
+          {
+            "column" : "v7",
+            "isDelta" : true,
+            "payload" : "github_events",
+            "rowLabel" : "GitHub events",
+            "unit" : "% [-0.9 .. +5.9]",
+            "value" : 4.8
+          },
+          {
+            "column" : "v6",
+            "isDelta" : true,
+            "payload" : "github_events",
+            "rowLabel" : "GitHub events",
+            "unit" : "% [+4.9 .. +6.0]",
+            "value" : 5.4
+          },
+          {
+            "column" : "v7",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 structured response",
+            "unit" : "% [-0.7 .. +7.6]",
+            "value" : 5.4
+          },
+          {
+            "column" : "v6",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 structured response",
+            "unit" : "% [+4.0 .. +4.7]",
+            "value" : 4.7
+          },
+          {
+            "column" : "v7",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 workspace edit",
+            "unit" : "%",
+            "value" : 3.7
+          },
+          {
+            "column" : "v6",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 workspace edit",
+            "unit" : "% [+2.7 .. +4.9]",
+            "value" : 4.7
+          },
+          {
+            "column" : "v7",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter",
+            "unit" : "%",
+            "value" : 0.8
+          },
+          {
+            "column" : "v6",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter",
+            "unit" : "%",
+            "value" : 0.7
+          },
+          {
+            "column" : "v7",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter full",
+            "unit" : "% [+2.4 .. +2.7]",
+            "value" : 2.4
+          },
+          {
+            "column" : "v6",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter full",
+            "unit" : "% [+3.8 .. +4.6]",
+            "value" : 4
+          },
+          {
+            "column" : "v7",
+            "isDelta" : true,
+            "payload" : "citm_catalog",
+            "rowLabel" : "CITM catalog",
+            "unit" : "%",
+            "value" : 0.2
+          },
+          {
+            "column" : "v6",
+            "isDelta" : true,
+            "payload" : "citm_catalog",
+            "rowLabel" : "CITM catalog",
+            "unit" : "%",
+            "value" : 0.4
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter full, typed bulk / 16KB",
+            "unit" : "% / +4.6%",
+            "value" : 4.3
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "github_events",
+            "rowLabel" : "GitHub events, typed",
+            "unit" : "%",
+            "value" : 5.4
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 workspace edit, typed",
+            "unit" : "%",
+            "value" : 5.3
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen 3 structured response, typed",
+            "unit" : "%",
+            "value" : 4
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018, typed bulk / 16KB",
+            "unit" : "% / +3.0%",
+            "value" : 2.7
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message, typed",
+            "unit" : "%",
+            "value" : 0.9
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter, typed",
+            "unit" : "%",
+            "value" : 0.8
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message, raw bulk and 16KB",
+            "unit" : "% [-2.9 .. -0.9]",
+            "value" : -2.6
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018, raw",
+            "unit" : "% .. +1.9%",
+            "value" : 1.6
+          }
+        ],
+        "parentPath" : "landed-whole-table-strings-copied-without-memmove-long-key-tails-compared-by-word",
+        "path" : "landed-whole-table-strings-copied-without-memmove-long-key-tails-compared-by-word/measured",
+        "slug" : "measured",
+        "summary" : "Attribution against 312c63d1, 3 rounds, load about 5, typed rows. v7 is appendWhole alone, v6 adds the word tail compare:",
+        "tables" : [
+          {
+            "headers" : [
+              "Row",
+              "v7",
+              "v6"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "GSoC 2018"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+2.8% [+2.8 .. +3.0]",
+                  "unit" : "% [+2.8 .. +3.0]",
+                  "value" : 2.8
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+2.8%",
+                  "unit" : "%",
+                  "value" : 2.8
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "GitHub events"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+4.8% [-0.9 .. +5.9]",
+                  "unit" : "% [-0.9 .. +5.9]",
+                  "value" : 4.8
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+5.4% [+4.9 .. +6.0]",
+                  "unit" : "% [+4.9 .. +6.0]",
+                  "value" : 5.4
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Qwen 3 structured response"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+5.4% [-0.7 .. +7.6]",
+                  "unit" : "% [-0.7 .. +7.6]",
+                  "value" : 5.4
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+4.7% [+4.0 .. +4.7]",
+                  "unit" : "% [+4.0 .. +4.7]",
+                  "value" : 4.7
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Qwen 3 workspace edit"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+3.7%",
+                  "unit" : "%",
+                  "value" : 3.7
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+4.7% [+2.7 .. +4.9]",
+                  "unit" : "% [+2.7 .. +4.9]",
+                  "value" : 4.7
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.8%",
+                  "unit" : "%",
+                  "value" : 0.8
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.7%",
+                  "unit" : "%",
+                  "value" : 0.7
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter full"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+2.4% [+2.4 .. +2.7]",
+                  "unit" : "% [+2.4 .. +2.7]",
+                  "value" : 2.4
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+4.0% [+3.8 .. +4.6]",
+                  "unit" : "% [+3.8 .. +4.6]",
+                  "value" : 4
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "CITM catalog"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.2%",
+                  "unit" : "%",
+                  "value" : 0.2
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.4%",
+                  "unit" : "%",
+                  "value" : 0.4
+                }
+              ]
+            ]
+          },
+          {
+            "headers" : [
+              "Row",
+              "Change"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter full, typed bulk / 16KB"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+4.3% / +4.6%",
+                  "unit" : "% / +4.6%",
+                  "value" : 4.3
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "GitHub events, typed"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+5.4%",
+                  "unit" : "%",
+                  "value" : 5.4
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Qwen 3 workspace edit, typed"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+5.3%",
+                  "unit" : "%",
+                  "value" : 5.3
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Qwen 3 structured response, typed"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+4.0%",
+                  "unit" : "%",
+                  "value" : 4
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "GSoC 2018, typed bulk / 16KB"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+2.7% / +3.0%",
+                  "unit" : "% / +3.0%",
+                  "value" : 2.7
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "LLM message, typed"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.9%",
+                  "unit" : "%",
+                  "value" : 0.9
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter, typed"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.8%",
+                  "unit" : "%",
+                  "value" : 0.8
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Byte-by-byte rows"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "0",
+                  "value" : 0
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "LLM message, raw bulk and 16KB"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-2.6% [-2.9 .. -0.9]",
+                  "unit" : "% [-2.9 .. -0.9]",
+                  "value" : -2.6
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "GSoC 2018, raw"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.6% .. +1.9%",
+                  "unit" : "% .. +1.9%",
+                  "value" : 1.6
+                }
+              ]
+            ]
+          }
+        ],
+        "title" : "Measured",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Landed: a number's digit runs finish in one SWAR word",
+        "codeBlocks" : [
+
+        ],
+        "level" : 2,
+        "line" : 5781,
+        "markdown" : "*Recorded 2026-11-09.*\n\nCensus of the tokens that miss the short integer kernel (anything but an unsigned integer of at\nmost eight digits):\n\n| Payload | Tokens | Shapes |\n| --- | ---: | --- |\n| Canada | 111,120 | (2 int, 15 frac) 86.6K, (3, 14) 14K, (2, 14) 7.5K, (3, 6) / (2, 6) ~1.9K |\n| Mesh | 36,000 | 1 int digit + 11–13 frac ~27K, `x.y` 4.1K, 10-digit integers 3.6K |\n| CITM catalog | 13,485 | 9-digit integers 13.2K, 13-digit 243 |\n| Twitter | 467 | 10-digit integers 225, 18-digit 197 |\n\n`streamAccumulateDigits` gives each eight bytes before the token end one SWAR class test\n(`streamDigitClass`) that serves both outcomes. All numerals is a full block, converted from the\nsame subtraction (`streamEightDigitValue`); otherwise the run ends inside the word, and its leading\nnumerals are one shift, one conversion and one multiply by 10^count\n(`streamAccumulateLeadingDigits`, with `stream_parsing_pow10_u64`). With fewer than eight bytes\nleft, the eight ending at the token end are read and shifted down. In the integer segment one byte\nleft is one step (CITM's nine-digit ids). Only a buffer shorter than eight bytes keeps the byte\nloop. This replaces the SIMD eight-digit block, whose class test could not be reused, and the\nper-digit loop of dependent multiplies. `emitGeneralNumber` went from 34 NEON instructions to 2\n(320 → 416 instructions) in the `FastCountingSink` specialisation and from 128 to 0 (1,280 →\n1,664) in `PartialSink`'s.",
+        "measurements" : [
+          {
+            "column" : "Tokens",
+            "isDelta" : false,
+            "payload" : "canada",
+            "rowLabel" : "Canada",
+            "value" : 111120
+          },
+          {
+            "column" : "Tokens",
+            "isDelta" : false,
+            "payload" : "mesh",
+            "rowLabel" : "Mesh",
+            "value" : 36000
+          },
+          {
+            "column" : "Shapes",
+            "isDelta" : false,
+            "payload" : "mesh",
+            "rowLabel" : "Mesh",
+            "unit" : "int digit + 11–13 frac ~27K, x.y 4.1K, 10-digit integers 3.6K",
+            "value" : 1
+          },
+          {
+            "column" : "Tokens",
+            "isDelta" : false,
+            "payload" : "citm_catalog",
+            "rowLabel" : "CITM catalog",
+            "value" : 13485
+          },
+          {
+            "column" : "Shapes",
+            "isDelta" : false,
+            "payload" : "citm_catalog",
+            "rowLabel" : "CITM catalog",
+            "unit" : "-digit integers 13.2K, 13-digit 243",
+            "value" : 9
+          },
+          {
+            "column" : "Tokens",
+            "isDelta" : false,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter",
+            "value" : 467
+          },
+          {
+            "column" : "Shapes",
+            "isDelta" : false,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter",
+            "unit" : "-digit integers 225, 18-digit 197",
+            "value" : 10
+          }
+        ],
+        "path" : "landed-a-number-s-digit-runs-finish-in-one-swar-word",
+        "slug" : "landed-a-number-s-digit-runs-finish-in-one-swar-word",
+        "summary" : "Census of the tokens that miss the short integer kernel (anything but an unsigned integer of at most eight digits):",
+        "tables" : [
+          {
+            "headers" : [
+              "Payload",
+              "Tokens",
+              "Shapes"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Canada"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "111,120",
+                  "value" : 111120
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "(2 int, 15 frac) 86.6K, (3, 14) 14K, (2, 14) 7.5K, (3, 6) / (2, 6) ~1.9K"
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Mesh"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "36,000",
+                  "value" : 36000
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "1 int digit + 11–13 frac ~27K, x.y 4.1K, 10-digit integers 3.6K",
+                  "unit" : "int digit + 11–13 frac ~27K, x.y 4.1K, 10-digit integers 3.6K",
+                  "value" : 1
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "CITM catalog"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "13,485",
+                  "value" : 13485
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "9-digit integers 13.2K, 13-digit 243",
+                  "unit" : "-digit integers 13.2K, 13-digit 243",
+                  "value" : 9
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "467",
+                  "value" : 467
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "10-digit integers 225, 18-digit 197",
+                  "unit" : "-digit integers 225, 18-digit 197",
+                  "value" : 10
+                }
+              ]
+            ]
+          }
+        ],
+        "title" : "Landed: a number's digit runs finish in one SWAR word",
+        "verdict" : "landed"
+      },
+      {
+        "chapter" : "Landed: a number's digit runs finish in one SWAR word",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 5807,
+        "markdown" : "*Recorded 2026-11-09.*\n\nv1 parsed `[-]` 1–16 digits, or `[-]` 1–8 digits `.` 1–15 digits, whole at the top of\n`emitGeneralNumber`: the dot found as the last `.` in the 16 bytes ending at the token end, three\nmasked 8-digit SWAR conversions and one validation test. 3 rounds against 312c63d1: Canada raw\n+1.4%, typed -12.6%; Mesh raw -9.0%, typed -5.2%; CITM raw -8.8%, typed -4.3%; Separators numbers\n-16% .. -22%. It was about 110 instructions a token against the walk's 80 on predictable shapes,\nand `walkNumber` was outlined with a 64-byte copy of `self`.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "landed-a-number-s-digit-runs-finish-in-one-swar-word",
+        "path" : "landed-a-number-s-digit-runs-finish-in-one-swar-word/rejected-a-fixed-extent-kernel-in-front-of-the-walk",
+        "slug" : "rejected-a-fixed-extent-kernel-in-front-of-the-walk",
+        "summary" : "v1 parsed [-] 1–16 digits, or [-] 1–8 digits . 1–15 digits, whole at the top of emitGeneralNumber: the dot found as the last . in the 16 bytes ending at the token end, three masked 8-digit SWAR conversions and one validation test. 3 rounds against 312c63d1:…",
+        "tables" : [
+
+        ],
+        "title" : "Rejected: a fixed-extent kernel in front of the walk",
+        "verdict" : "rejected"
+      },
+      {
+        "chapter" : "Landed: a number's digit runs finish in one SWAR word",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 5818,
+        "markdown" : "*Recorded 2026-11-09.*\n\nv2 added the partial word and kept the SIMD block; v3 uses the SWAR class test for both; v5 adds\nthe one-byte step in the integer segment. Raw / typed against 312c63d1:\n\n| Row | v2 (3 rounds) | v3 (3 rounds) | v5 (5 rounds) |\n| --- | ---: | ---: | ---: |\n| Canada | +10.6% / +2.9% | +13.8% / +3.5% | +13.8% / +3.0% |\n| Mesh | +1.0% .. +1.2% / +2.4% .. +2.6% | +2.0% / +1.7% | / +1.7% |\n| CITM catalog | -2.6% / -0.7% .. -1.3% | -2.2% / -1.3% | +0.6% / +0.7% |\n| Separators numbers | -2% .. -4% | raw +24.5%, +30.0%; typed +15.1%, +18.1% | |\n\nv3 against v2: Separators +30% .. +36% raw, Canada raw +2.8%. v5 against v3: CITM raw +2.8%,\ntyped +2.0% in every round; Canada and Mesh 0.",
+        "measurements" : [
+          {
+            "column" : "v2 (3 rounds)",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Canada",
+            "unit" : "% / +2.9%",
+            "value" : 10.6
+          },
+          {
+            "column" : "v3 (3 rounds)",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Canada",
+            "unit" : "% / +3.5%",
+            "value" : 13.8
+          },
+          {
+            "column" : "v5 (5 rounds)",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Canada",
+            "unit" : "% / +3.0%",
+            "value" : 13.8
+          },
+          {
+            "column" : "v2 (3 rounds)",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Mesh",
+            "unit" : "% .. +1.2% / +2.4% .. +2.6%",
+            "value" : 1
+          },
+          {
+            "column" : "v3 (3 rounds)",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Mesh",
+            "unit" : "% / +1.7%",
+            "value" : 2
+          },
+          {
+            "column" : "v2 (3 rounds)",
+            "isDelta" : true,
+            "payload" : "citm_catalog",
+            "rowLabel" : "CITM catalog",
+            "unit" : "% / -0.7% .. -1.3%",
+            "value" : -2.6
+          },
+          {
+            "column" : "v3 (3 rounds)",
+            "isDelta" : true,
+            "payload" : "citm_catalog",
+            "rowLabel" : "CITM catalog",
+            "unit" : "% / -1.3%",
+            "value" : -2.2
+          },
+          {
+            "column" : "v5 (5 rounds)",
+            "isDelta" : true,
+            "payload" : "citm_catalog",
+            "rowLabel" : "CITM catalog",
+            "unit" : "% / +0.7%",
+            "value" : 0.6
+          }
+        ],
+        "parentPath" : "landed-a-number-s-digit-runs-finish-in-one-swar-word",
+        "path" : "landed-a-number-s-digit-runs-finish-in-one-swar-word/measured",
+        "slug" : "measured",
+        "summary" : "v2 added the partial word and kept the SIMD block; v3 uses the SWAR class test for both; v5 adds the one-byte step in the integer segment. Raw / typed against 312c63d1:",
+        "tables" : [
+          {
+            "headers" : [
+              "Row",
+              "v2 (3 rounds)",
+              "v3 (3 rounds)",
+              "v5 (5 rounds)"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Canada"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+10.6% / +2.9%",
+                  "unit" : "% / +2.9%",
+                  "value" : 10.6
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+13.8% / +3.5%",
+                  "unit" : "% / +3.5%",
+                  "value" : 13.8
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+13.8% / +3.0%",
+                  "unit" : "% / +3.0%",
+                  "value" : 13.8
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Mesh"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.0% .. +1.2% / +2.4% .. +2.6%",
+                  "unit" : "% .. +1.2% / +2.4% .. +2.6%",
+                  "value" : 1
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+2.0% / +1.7%",
+                  "unit" : "% / +1.7%",
+                  "value" : 2
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "/ +1.7%"
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "CITM catalog"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-2.6% / -0.7% .. -1.3%",
+                  "unit" : "% / -0.7% .. -1.3%",
+                  "value" : -2.6
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-2.2% / -1.3%",
+                  "unit" : "% / -1.3%",
+                  "value" : -2.2
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.6% / +0.7%",
+                  "unit" : "% / +0.7%",
+                  "value" : 0.6
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Separators numbers"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-2% .. -4%",
+                  "unit" : "% .. -4%",
+                  "value" : -2
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "raw +24.5%, +30.0%; typed +15.1%, +18.1%"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : ""
+                }
+              ]
+            ]
+          }
+        ],
+        "title" : "Measured",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Landed: a number's digit runs finish in one SWAR word",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 5835,
+        "markdown" : "*Recorded 2026-11-09.*\n\nv4 against v3: CITM +2% .. +3%, Canada typed -1.7%: the fraction tails it never hits paid the\nbranch.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "landed-a-number-s-digit-runs-finish-in-one-swar-word",
+        "path" : "landed-a-number-s-digit-runs-finish-in-one-swar-word/rejected-the-one-byte-step-in-every-segment",
+        "slug" : "rejected-the-one-byte-step-in-every-segment",
+        "summary" : "v4 against v3: CITM +2% .. +3%, Canada typed -1.7%: the fraction tails it never hits paid the branch.",
+        "tables" : [
+
+        ],
+        "title" : "Rejected: the one-byte step in every segment",
+        "verdict" : "rejected"
+      },
+      {
+        "chapter" : "Landed: a number's digit runs finish in one SWAR word",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 5842,
+        "markdown" : "*Recorded 2026-11-09.*\n\nv5 against 312c63d1, 3 rounds, quiet machine (load 4–6):\n\n| Row | Change |\n| --- | ---: |\n| Canada, raw bulk / 16KB | +13.8% / +13.8% |\n| Canada, typed bulk / 16KB | +3.1% / +2.9% |\n| Mesh, typed bulk / 16KB | +1.7% / +1.7% |\n| Mesh, raw | +0.5% |\n| CITM catalog | +0.5% .. +1.3% |\n| Every other row | -0.4% .. +0.7% |",
+        "measurements" : [
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Canada, raw bulk / 16KB",
+            "unit" : "% / +13.8%",
+            "value" : 13.8
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Canada, typed bulk / 16KB",
+            "unit" : "% / +2.9%",
+            "value" : 3.1
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Mesh, typed bulk / 16KB",
+            "unit" : "% / +1.7%",
+            "value" : 1.7
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Mesh, raw",
+            "unit" : "%",
+            "value" : 0.5
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "citm_catalog",
+            "rowLabel" : "CITM catalog",
+            "unit" : "% .. +1.3%",
+            "value" : 0.5
+          }
+        ],
+        "parentPath" : "landed-a-number-s-digit-runs-finish-in-one-swar-word",
+        "path" : "landed-a-number-s-digit-runs-finish-in-one-swar-word/measured-the-full-gate",
+        "slug" : "measured-the-full-gate",
+        "summary" : "v5 against 312c63d1, 3 rounds, quiet machine (load 4–6):",
+        "tables" : [
+          {
+            "headers" : [
+              "Row",
+              "Change"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Canada, raw bulk / 16KB"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+13.8% / +13.8%",
+                  "unit" : "% / +13.8%",
+                  "value" : 13.8
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Canada, typed bulk / 16KB"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+3.1% / +2.9%",
+                  "unit" : "% / +2.9%",
+                  "value" : 3.1
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Mesh, typed bulk / 16KB"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.7% / +1.7%",
+                  "unit" : "% / +1.7%",
+                  "value" : 1.7
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Mesh, raw"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.5%",
+                  "unit" : "%",
+                  "value" : 0.5
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "CITM catalog"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.5% .. +1.3%",
+                  "unit" : "% .. +1.3%",
+                  "value" : 0.5
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Every other row"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-0.4% .. +0.7%",
+                  "unit" : "% .. +0.7%",
+                  "value" : -0.4
+                }
+              ]
+            ]
+          }
+        ],
+        "title" : "Measured: the full gate",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Measured: the tail memo, the UTF-8 registers, the member opens and the escaped-tail kernel together",
+        "codeBlocks" : [
+
+        ],
+        "level" : 2,
+        "line" : 5857,
+        "markdown" : "*Recorded 2026-11-09.*\n\nThe first four changes above (the sink's tail memo, the register-only UTF-8 validator, the member\nopens, the escaped-tail kernel) plus the chunk-cut number change, against 5a61414f. Aligned\nbuilds, 3 interleaved rounds on a quiet machine, median p0 [per-round range]. The digit-run and\ntable-string changes are not in this build. The Mesh 16KB rows include the chunk-cut change.\n\n| Row | Change |\n| --- | ---: |\n| Real CITM catalog - 16KB chunks | +0.1% [+0.1 .. +0.1] |\n| Real CITM catalog - 16KB chunks discarding | +25.4% [+25.3 .. +29.3] |\n| Real CITM catalog - bulk | +0.1% [+0.1 .. +0.1] |\n| Real CITM catalog - bulk discarding | +25.6% [+25.5 .. +28.4] |\n| Real Canada - 16KB chunks | -0.6% [-0.7 .. -0.5] |\n| Real Canada - 16KB chunks discarding | +1.8% [+1.7 .. +1.8] |\n| Real Canada - bulk | -0.6% [-0.6 .. -0.6] |\n| Real Canada - bulk discarding | +1.8% [+1.6 .. +1.8] |\n| Real GSoC 2018 - 16KB chunks | +1.1% [+1.1 .. +1.2] |\n| Real GSoC 2018 - 16KB chunks discarding | +5.5% [+5.4 .. +5.5] |\n| Real GSoC 2018 - bulk | -0.0% [-0.0 .. -0.0] |\n| Real GSoC 2018 - bulk discarding | +5.6% [+5.4 .. +5.8] |\n| Real GitHub events - bulk | +0.7% [+0.5 .. +1.0] |\n| Real GitHub events - bulk discarding | +9.7% [+9.3 .. +10.2] |\n| Real LLM message - 16KB chunks | +42.7% [+42.4 .. +43.4] |\n| Real LLM message - 16KB chunks discarding | +23.1% [+23.0 .. +23.1] |\n| Real LLM message - bulk | +43.0% [+42.6 .. +43.1] |\n| Real LLM message - bulk discarding | +23.7% [+23.0 .. +24.0] |\n| Real LLM message - byte by byte | +0.1% [+0.1 .. +0.1] |\n| Real LLM message - byte by byte discarding | -0.4% [-0.6 .. -0.0] |\n| Real Mesh - 16KB chunks | +17.4% [+17.3 .. +17.7] |\n| Real Mesh - 16KB chunks discarding | +32.8% [+32.7 .. +32.9] |\n| Real Mesh - bulk | +0.1% [-0.2 .. +0.4] |\n| Real Mesh - bulk discarding | +14.7% [+14.6 .. +14.7] |\n| Real Qwen 3 structured response - bulk | +0.0% [+0.0 .. +0.8] |\n| Real Qwen 3 structured response - bulk discarding | +9.2% [+8.9 .. +9.6] |\n| Real Qwen 3 workspace edit tool call - bulk | +3.5% [+3.1 .. +4.3] |\n| Real Qwen 3 workspace edit tool call - bulk discarding | -0.1% [-0.4 .. +0.1] |\n| Real Twitter - 16KB chunks | +3.0% [+2.9 .. +3.0] |\n| Real Twitter - 16KB chunks discarding | +3.0% [+3.0 .. +3.1] |\n| Real Twitter - bulk | +3.0% [+2.8 .. +3.1] |\n| Real Twitter - bulk discarding | +3.0% [+2.9 .. +3.2] |\n| Real Twitter escaped - bulk | +11.7% [+11.6 .. +12.3] |\n| Real Twitter escaped - bulk discarding | +6.3% [+6.2 .. +6.4] |\n| Real Twitter escaped - byte by byte | +0.2% [+0.2 .. +0.3] |\n| Real Twitter escaped - byte by byte discarding | +0.2% [+0.1 .. +0.3] |\n| Real Twitter full - 16KB chunks discarding | +13.2% [+13.0 .. +13.3] |\n| Real Twitter full - bulk discarding | +13.1% [+12.7 .. +13.4] |\n| Real Twitter spaced - bulk | +4.9% [+4.8 .. +5.1] |\n| Real Twitter spaced - bulk discarding | +3.9% [+3.8 .. +4.1] |",
+        "measurements" : [
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "citm_catalog",
+            "rowLabel" : "Real CITM catalog - 16KB chunks",
+            "unit" : "% [+0.1 .. +0.1]",
+            "value" : 0.1
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "citm_catalog",
+            "rowLabel" : "Real CITM catalog - 16KB chunks discarding",
+            "unit" : "% [+25.3 .. +29.3]",
+            "value" : 25.4
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "citm_catalog",
+            "rowLabel" : "Real CITM catalog - bulk",
+            "unit" : "% [+0.1 .. +0.1]",
+            "value" : 0.1
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "citm_catalog",
+            "rowLabel" : "Real CITM catalog - bulk discarding",
+            "unit" : "% [+25.5 .. +28.4]",
+            "value" : 25.6
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Real Canada - 16KB chunks",
+            "unit" : "% [-0.7 .. -0.5]",
+            "value" : -0.6
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Real Canada - 16KB chunks discarding",
+            "unit" : "% [+1.7 .. +1.8]",
+            "value" : 1.8
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Real Canada - bulk",
+            "unit" : "% [-0.6 .. -0.6]",
+            "value" : -0.6
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Real Canada - bulk discarding",
+            "unit" : "% [+1.6 .. +1.8]",
+            "value" : 1.8
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "Real GSoC 2018 - 16KB chunks",
+            "unit" : "% [+1.1 .. +1.2]",
+            "value" : 1.1
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "Real GSoC 2018 - 16KB chunks discarding",
+            "unit" : "% [+5.4 .. +5.5]",
+            "value" : 5.5
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "Real GSoC 2018 - bulk",
+            "unit" : "% [-0.0 .. -0.0]",
+            "value" : -0
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "Real GSoC 2018 - bulk discarding",
+            "unit" : "% [+5.4 .. +5.8]",
+            "value" : 5.6
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "github_events",
+            "rowLabel" : "Real GitHub events - bulk",
+            "unit" : "% [+0.5 .. +1.0]",
+            "value" : 0.7
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "github_events",
+            "rowLabel" : "Real GitHub events - bulk discarding",
+            "unit" : "% [+9.3 .. +10.2]",
+            "value" : 9.7
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "Real LLM message - 16KB chunks",
+            "unit" : "% [+42.4 .. +43.4]",
+            "value" : 42.7
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "Real LLM message - 16KB chunks discarding",
+            "unit" : "% [+23.0 .. +23.1]",
+            "value" : 23.1
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "Real LLM message - bulk",
+            "unit" : "% [+42.6 .. +43.1]",
+            "value" : 43
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "Real LLM message - bulk discarding",
+            "unit" : "% [+23.0 .. +24.0]",
+            "value" : 23.7
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "Real LLM message - byte by byte",
+            "unit" : "% [+0.1 .. +0.1]",
+            "value" : 0.1
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "Real LLM message - byte by byte discarding",
+            "unit" : "% [-0.6 .. -0.0]",
+            "value" : -0.4
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Real Mesh - 16KB chunks",
+            "unit" : "% [+17.3 .. +17.7]",
+            "value" : 17.4
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Real Mesh - 16KB chunks discarding",
+            "unit" : "% [+32.7 .. +32.9]",
+            "value" : 32.8
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Real Mesh - bulk",
+            "unit" : "% [-0.2 .. +0.4]",
+            "value" : 0.1
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Real Mesh - bulk discarding",
+            "unit" : "% [+14.6 .. +14.7]",
+            "value" : 14.7
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Real Qwen 3 structured response - bulk",
+            "unit" : "% [+0.0 .. +0.8]",
+            "value" : 0
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Real Qwen 3 structured response - bulk discarding",
+            "unit" : "% [+8.9 .. +9.6]",
+            "value" : 9.2
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Real Qwen 3 workspace edit tool call - bulk",
+            "unit" : "% [+3.1 .. +4.3]",
+            "value" : 3.5
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Real Qwen 3 workspace edit tool call - bulk discarding",
+            "unit" : "% [-0.4 .. +0.1]",
+            "value" : -0.1
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Real Twitter - 16KB chunks",
+            "unit" : "% [+2.9 .. +3.0]",
+            "value" : 3
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Real Twitter - 16KB chunks discarding",
+            "unit" : "% [+3.0 .. +3.1]",
+            "value" : 3
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Real Twitter - bulk",
+            "unit" : "% [+2.8 .. +3.1]",
+            "value" : 3
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Real Twitter - bulk discarding",
+            "unit" : "% [+2.9 .. +3.2]",
+            "value" : 3
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "twitterescaped",
+            "rowLabel" : "Real Twitter escaped - bulk",
+            "unit" : "% [+11.6 .. +12.3]",
+            "value" : 11.7
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "twitterescaped",
+            "rowLabel" : "Real Twitter escaped - bulk discarding",
+            "unit" : "% [+6.2 .. +6.4]",
+            "value" : 6.3
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "twitterescaped",
+            "rowLabel" : "Real Twitter escaped - byte by byte",
+            "unit" : "% [+0.2 .. +0.3]",
+            "value" : 0.2
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "twitterescaped",
+            "rowLabel" : "Real Twitter escaped - byte by byte discarding",
+            "unit" : "% [+0.1 .. +0.3]",
+            "value" : 0.2
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Real Twitter full - 16KB chunks discarding",
+            "unit" : "% [+13.0 .. +13.3]",
+            "value" : 13.2
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Real Twitter full - bulk discarding",
+            "unit" : "% [+12.7 .. +13.4]",
+            "value" : 13.1
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Real Twitter spaced - bulk",
+            "unit" : "% [+4.8 .. +5.1]",
+            "value" : 4.9
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Real Twitter spaced - bulk discarding",
+            "unit" : "% [+3.8 .. +4.1]",
+            "value" : 3.9
+          }
+        ],
+        "path" : "measured-the-tail-memo-the-utf-8-registers-the-member-opens-and-the-escaped-tail-kernel-together",
+        "slug" : "measured-the-tail-memo-the-utf-8-registers-the-member-opens-and-the-escaped-tail-kernel-together",
+        "summary" : "The first four changes above (the sink's tail memo, the register-only UTF-8 validator, the member opens, the escaped-tail kernel) plus the chunk-cut number change, against 5a61414f. Aligned builds, 3 interleaved rounds on a quiet machine, median p0 [per-round…",
+        "tables" : [
+          {
+            "headers" : [
+              "Row",
+              "Change"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real CITM catalog - 16KB chunks"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.1% [+0.1 .. +0.1]",
+                  "unit" : "% [+0.1 .. +0.1]",
+                  "value" : 0.1
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real CITM catalog - 16KB chunks discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+25.4% [+25.3 .. +29.3]",
+                  "unit" : "% [+25.3 .. +29.3]",
+                  "value" : 25.4
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real CITM catalog - bulk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.1% [+0.1 .. +0.1]",
+                  "unit" : "% [+0.1 .. +0.1]",
+                  "value" : 0.1
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real CITM catalog - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+25.6% [+25.5 .. +28.4]",
+                  "unit" : "% [+25.5 .. +28.4]",
+                  "value" : 25.6
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Canada - 16KB chunks"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-0.6% [-0.7 .. -0.5]",
+                  "unit" : "% [-0.7 .. -0.5]",
+                  "value" : -0.6
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Canada - 16KB chunks discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.8% [+1.7 .. +1.8]",
+                  "unit" : "% [+1.7 .. +1.8]",
+                  "value" : 1.8
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Canada - bulk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-0.6% [-0.6 .. -0.6]",
+                  "unit" : "% [-0.6 .. -0.6]",
+                  "value" : -0.6
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Canada - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.8% [+1.6 .. +1.8]",
+                  "unit" : "% [+1.6 .. +1.8]",
+                  "value" : 1.8
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real GSoC 2018 - 16KB chunks"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.1% [+1.1 .. +1.2]",
+                  "unit" : "% [+1.1 .. +1.2]",
+                  "value" : 1.1
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real GSoC 2018 - 16KB chunks discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+5.5% [+5.4 .. +5.5]",
+                  "unit" : "% [+5.4 .. +5.5]",
+                  "value" : 5.5
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real GSoC 2018 - bulk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-0.0% [-0.0 .. -0.0]",
+                  "unit" : "% [-0.0 .. -0.0]",
+                  "value" : -0
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real GSoC 2018 - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+5.6% [+5.4 .. +5.8]",
+                  "unit" : "% [+5.4 .. +5.8]",
+                  "value" : 5.6
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real GitHub events - bulk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.7% [+0.5 .. +1.0]",
+                  "unit" : "% [+0.5 .. +1.0]",
+                  "value" : 0.7
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real GitHub events - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+9.7% [+9.3 .. +10.2]",
+                  "unit" : "% [+9.3 .. +10.2]",
+                  "value" : 9.7
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real LLM message - 16KB chunks"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+42.7% [+42.4 .. +43.4]",
+                  "unit" : "% [+42.4 .. +43.4]",
+                  "value" : 42.7
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real LLM message - 16KB chunks discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+23.1% [+23.0 .. +23.1]",
+                  "unit" : "% [+23.0 .. +23.1]",
+                  "value" : 23.1
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real LLM message - bulk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+43.0% [+42.6 .. +43.1]",
+                  "unit" : "% [+42.6 .. +43.1]",
+                  "value" : 43
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real LLM message - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+23.7% [+23.0 .. +24.0]",
+                  "unit" : "% [+23.0 .. +24.0]",
+                  "value" : 23.7
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real LLM message - byte by byte"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.1% [+0.1 .. +0.1]",
+                  "unit" : "% [+0.1 .. +0.1]",
+                  "value" : 0.1
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real LLM message - byte by byte discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-0.4% [-0.6 .. -0.0]",
+                  "unit" : "% [-0.6 .. -0.0]",
+                  "value" : -0.4
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Mesh - 16KB chunks"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+17.4% [+17.3 .. +17.7]",
+                  "unit" : "% [+17.3 .. +17.7]",
+                  "value" : 17.4
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Mesh - 16KB chunks discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+32.8% [+32.7 .. +32.9]",
+                  "unit" : "% [+32.7 .. +32.9]",
+                  "value" : 32.8
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Mesh - bulk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.1% [-0.2 .. +0.4]",
+                  "unit" : "% [-0.2 .. +0.4]",
+                  "value" : 0.1
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Mesh - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+14.7% [+14.6 .. +14.7]",
+                  "unit" : "% [+14.6 .. +14.7]",
+                  "value" : 14.7
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Qwen 3 structured response - bulk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.0% [+0.0 .. +0.8]",
+                  "unit" : "% [+0.0 .. +0.8]",
+                  "value" : 0
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Qwen 3 structured response - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+9.2% [+8.9 .. +9.6]",
+                  "unit" : "% [+8.9 .. +9.6]",
+                  "value" : 9.2
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Qwen 3 workspace edit tool call - bulk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+3.5% [+3.1 .. +4.3]",
+                  "unit" : "% [+3.1 .. +4.3]",
+                  "value" : 3.5
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Qwen 3 workspace edit tool call - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-0.1% [-0.4 .. +0.1]",
+                  "unit" : "% [-0.4 .. +0.1]",
+                  "value" : -0.1
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Twitter - 16KB chunks"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+3.0% [+2.9 .. +3.0]",
+                  "unit" : "% [+2.9 .. +3.0]",
+                  "value" : 3
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Twitter - 16KB chunks discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+3.0% [+3.0 .. +3.1]",
+                  "unit" : "% [+3.0 .. +3.1]",
+                  "value" : 3
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Twitter - bulk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+3.0% [+2.8 .. +3.1]",
+                  "unit" : "% [+2.8 .. +3.1]",
+                  "value" : 3
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Twitter - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+3.0% [+2.9 .. +3.2]",
+                  "unit" : "% [+2.9 .. +3.2]",
+                  "value" : 3
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Twitter escaped - bulk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+11.7% [+11.6 .. +12.3]",
+                  "unit" : "% [+11.6 .. +12.3]",
+                  "value" : 11.7
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Twitter escaped - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+6.3% [+6.2 .. +6.4]",
+                  "unit" : "% [+6.2 .. +6.4]",
+                  "value" : 6.3
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Twitter escaped - byte by byte"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.2% [+0.2 .. +0.3]",
+                  "unit" : "% [+0.2 .. +0.3]",
+                  "value" : 0.2
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Twitter escaped - byte by byte discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.2% [+0.1 .. +0.3]",
+                  "unit" : "% [+0.1 .. +0.3]",
+                  "value" : 0.2
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Twitter full - 16KB chunks discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+13.2% [+13.0 .. +13.3]",
+                  "unit" : "% [+13.0 .. +13.3]",
+                  "value" : 13.2
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Twitter full - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+13.1% [+12.7 .. +13.4]",
+                  "unit" : "% [+12.7 .. +13.4]",
+                  "value" : 13.1
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Twitter spaced - bulk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+4.9% [+4.8 .. +5.1]",
+                  "unit" : "% [+4.8 .. +5.1]",
+                  "value" : 4.9
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Twitter spaced - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+3.9% [+3.8 .. +4.1]",
+                  "unit" : "% [+3.8 .. +4.1]",
+                  "value" : 3.9
+                }
+              ]
+            ]
+          }
+        ],
+        "title" : "Measured: the tail memo, the UTF-8 registers, the member opens and the escaped-tail kernel together",
+        "verdict" : "neutral"
       }
     ],
     "title" : "Progression"
   },
-  "generatedAt" : "2026-11-09T23:55:25Z",
+  "generatedAt" : "2026-11-10T05:18:50Z",
   "sources" : {
 
   },
   "stats" : {
     "codeBlockCount" : 1,
     "datedSections" : 371,
-    "declCount" : 2141,
-    "fileCount" : 72,
+    "declCount" : 2181,
+    "fileCount" : 73,
     "firstRecorded" : "2026-08-11T21:38:05-07:00",
     "lastRecorded" : "2026-11-09T15:35:59-08:00",
-    "sectionCount" : 371,
-    "tableCount" : 194,
+    "sectionCount" : 398,
+    "tableCount" : 210,
     "verdictCounts" : {
-      "landed" : 34,
+      "landed" : 42,
       "mixed" : 5,
-      "neutral" : 300,
-      "rejected" : 32
+      "neutral" : 310,
+      "rejected" : 41
     }
   }
 }

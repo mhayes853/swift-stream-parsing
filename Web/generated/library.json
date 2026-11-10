@@ -1557,29 +1557,29 @@
         "@Test"
       ],
       "code" : "@Test\n  func `Every two byte sequence`() {\n    for first in 0...255 {\n      for second in 0...255 {\n        Self.check([UInt8(first), UInt8(second)], offsets: [0, 17])\n      }\n    }\n  }",
-      "endLine" : 55,
+      "endLine" : 127,
       "file" : "Tests/StreamParsingTests/Scanning/UTF8ValidationTests.swift",
       "kind" : "func",
       "members" : [
 
       ],
       "qualifiedName" : "`UTF-8 validation tests`.`Every two byte sequence`",
-      "startLine" : 48,
+      "startLine" : 120,
       "symbol" : "`Every two byte sequence`"
     },
     "UTF8ValidationTests.swift:Random byte strings" : {
       "attributes" : [
         "@Test"
       ],
-      "code" : "@Test\n  func `Random byte strings`() {\n    var state: UInt64 = 0x9E37_79B9_7F4A_7C15\n    func next() -> UInt64 {\n      state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407\n      return state >> 33\n    }\n    let alphabet: [UInt8] = [\n      0x20, 0x41, 0x7E, 0x7F, 0x80, 0x8F, 0x90, 0x9F, 0xA0, 0xBF,\n      0xC0, 0xC1, 0xC2, 0xDF, 0xE0, 0xE1, 0xEC, 0xED, 0xEE, 0xEF,\n      0xF0, 0xF1, 0xF3, 0xF4, 0xF5, 0xF8, 0xFF\n    ]\n    for _ in 0..<30_000 {\n      let count = Int(next() % 80)\n      var bytes = [UInt8]()\n      bytes.reserveCapacity(count)\n      for _ in 0..<count {\n        // Mostly plausible structure, with raw alphabet bytes thrown in.\n        switch next() % 8 {\n        case 0: bytes.append(contentsOf: [0xE3, 0x81, 0x82])\n        case 1: bytes.append(contentsOf: [0xF0, 0x9F, 0x98, 0x80])\n        case 2: bytes.append(contentsOf: [0xC3, 0xA9])\n        case 3: bytes.append(0x41)\n        default: bytes.append(alphabet[Int(next() % UInt64(alphabet.count))])\n        }\n      }\n      Self.check(bytes, offsets: [0, 16])\n    }\n  }",
-      "endLine" : 145,
+      "code" : "@Test\n  func `Random byte strings`() {\n    var state: UInt64 = 0x9E37_79B9_7F4A_7C15\n    func next() -> UInt64 {\n      state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407\n      return state >> 33\n    }\n    let alphabet: [UInt8] = [\n      0x20, 0x41, 0x7E, 0x7F, 0x80, 0x8F, 0x90, 0x9F, 0xA0, 0xBF,\n      0xC0, 0xC1, 0xC2, 0xDF, 0xE0, 0xE1, 0xEC, 0xED, 0xEE, 0xEF,\n      0xF0, 0xF1, 0xF3, 0xF4, 0xF5, 0xF8, 0xFF\n    ]\n    for _ in 0..<30_000 {\n      let count = Int(next() % 80)\n      var bytes = [UInt8]()\n      bytes.reserveCapacity(count)\n      for _ in 0..<count {\n        // Mostly plausible structure, with raw alphabet bytes thrown in.\n        switch next() % 8 {\n        case 0: bytes.append(contentsOf: [0xE3, 0x81, 0x82])\n        case 1: bytes.append(contentsOf: [0xF0, 0x9F, 0x98, 0x80])\n        case 2: bytes.append(contentsOf: [0xC3, 0xA9])\n        case 3: bytes.append(0x41)\n        default: bytes.append(alphabet[Int(next() % UInt64(alphabet.count))])\n        }\n      }\n      Self.check(bytes, offsets: [0, 16])\n      Self.checkGuarded(bytes, offsets: 0...1)\n    }\n  }",
+      "endLine" : 218,
       "file" : "Tests/StreamParsingTests/Scanning/UTF8ValidationTests.swift",
       "kind" : "func",
       "members" : [
 
       ],
       "qualifiedName" : "`UTF-8 validation tests`.`Random byte strings`",
-      "startLine" : 117,
+      "startLine" : 189,
       "symbol" : "`Random byte strings`"
     },
     "UTF8ValidationTests.swift:Three and four byte leads against every second byte" : {
@@ -1587,14 +1587,14 @@
         "@Test"
       ],
       "code" : "@Test\n  func `Three and four byte leads against every second byte`() {\n    for lead in 0xE0...0xF7 {\n      for second in 0...255 {\n        Self.check([UInt8(lead), UInt8(second), 0x80], offsets: [0, 16])\n        Self.check([UInt8(lead), UInt8(second), 0x80, 0x80], offsets: [0, 16])\n        Self.check([UInt8(lead), UInt8(second), 0x41], offsets: [0, 16])\n        Self.check([0x41, UInt8(lead), UInt8(second), 0x80, 0x80, 0x41], offsets: [0, 15])\n      }\n    }\n  }",
-      "endLine" : 76,
+      "endLine" : 148,
       "file" : "Tests/StreamParsingTests/Scanning/UTF8ValidationTests.swift",
       "kind" : "func",
       "members" : [
 
       ],
       "qualifiedName" : "`UTF-8 validation tests`.`Three and four byte leads against every second byte`",
-      "startLine" : 66,
+      "startLine" : 138,
       "symbol" : "`Three and four byte leads against every second byte`"
     },
     "UTF8ValidationTests.swift:UTF-8 validation tests" : {
@@ -1603,13 +1603,16 @@
       ],
       "code" : "@Suite\nstruct `UTF-8 validation tests` {\n  …\n}",
       "comment" : "The vector validator is held to the standard library's decoder: a byte string is valid\nexactly when decoding it with repair changes nothing. Both the lookup path the parser uses\nand the compare-based portable path are checked, on the same inputs, at several offsets into\na larger buffer so the first block, the overlapping middle blocks and the scratch tail are all\nexercised, with a quote before the run the way the parser always has one.",
-      "endLine" : 146,
+      "endLine" : 219,
       "file" : "Tests/StreamParsingTests/Scanning/UTF8ValidationTests.swift",
       "kind" : "struct",
       "members" : [
         "oracle",
         "vector",
         "check",
+        "guarded",
+        "checkGuarded",
+        "`Every length at every offset in an exactly sized allocation`",
         "`Every two byte sequence`",
         "`Every two byte sequence inside ASCII`",
         "`Three and four byte leads against every second byte`",
@@ -1626,14 +1629,14 @@
         "@Test"
       ],
       "code" : "@Test\n  func `Valid text at every length and one byte corrupted at every position`() {\n    let text = Array(\"日本語のテキスト, émojis 😀🎉, Ωμέγα, עברית, and plain ASCII.\".utf8)\n    var boundaries = [Int]()\n    var index = 0\n    for scalar in String(decoding: text, as: UTF8.self).unicodeScalars {\n      index += scalar.utf8.count\n      boundaries.append(index)\n    }\n    for end in boundaries {\n      Self.check(Array(text[..<end]))\n      Self.check(Array(text[..<end]), offsets: [1, 2, 5, 18, 33])\n    }\n    for position in 0..<text.count {\n      for replacement: UInt8 in [0x41, 0x80, 0xBF, 0xC0, 0xE0, 0xED, 0xF4, 0xFF] {\n        var corrupted = text\n        corrupted[position] = replacement\n        Self.check(corrupted, offsets: [0, 7, 16])\n      }\n      var truncated = Array(text[..<position])\n      Self.check(truncated, offsets: [0, 16])\n      truncated.append(0x80)\n      Self.check(truncated, offsets: [0, 16])\n    }\n  }",
-      "endLine" : 115,
+      "endLine" : 187,
       "file" : "Tests/StreamParsingTests/Scanning/UTF8ValidationTests.swift",
       "kind" : "func",
       "members" : [
 
       ],
       "qualifiedName" : "`UTF-8 validation tests`.`Valid text at every length and one byte corrupted at every position`",
-      "startLine" : 91,
+      "startLine" : 163,
       "symbol" : "`Valid text at every length and one byte corrupted at every position`"
     },
     "UTF8ValidationTests.swift:oracle" : {
@@ -1652,7 +1655,7 @@
       "symbol" : "oracle"
     }
   },
-  "generatedAt" : "2026-11-09T23:55:25Z",
+  "generatedAt" : "2026-11-10T05:18:50Z",
   "guides" : {
     "macro-support" : {
       "path" : "Sources/StreamParsingMacroSupport/Documentation.docc/StreamParsingMacroSupport.md",
@@ -4260,6 +4263,87 @@
         "target" : "StreamParsingMacrosTests"
       },
       {
+        "file" : "Tests/StreamParsingTests/Collections/SinkTailUniquenessTests.swift",
+        "key" : "SinkTailUniquenessTests.swift:Snapshots of number arrays stay isolated at every cut",
+        "line" : 71,
+        "name" : "Snapshots of number arrays stay isolated at every cut",
+        "parameterized" : false,
+        "suite" : "Sink tail uniqueness tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Collections/SinkTailUniquenessTests.swift",
+        "key" : "SinkTailUniquenessTests.swift:Snapshots of SIMD arrays stay isolated at every cut",
+        "line" : 79,
+        "name" : "Snapshots of SIMD arrays stay isolated at every cut",
+        "parameterized" : false,
+        "suite" : "Sink tail uniqueness tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Collections/SinkTailUniquenessTests.swift",
+        "key" : "SinkTailUniquenessTests.swift:Snapshots of nested arrays stay isolated at every cut",
+        "line" : 86,
+        "name" : "Snapshots of nested arrays stay isolated at every cut",
+        "parameterized" : false,
+        "suite" : "Sink tail uniqueness tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Collections/SinkTailUniquenessTests.swift",
+        "key" : "SinkTailUniquenessTests.swift:Snapshots of arrays of structs stay isolated at every cut",
+        "line" : 97,
+        "name" : "Snapshots of arrays of structs stay isolated at every cut",
+        "parameterized" : false,
+        "suite" : "Sink tail uniqueness tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Collections/SinkTailUniquenessTests.swift",
+        "key" : "SinkTailUniquenessTests.swift:A snapshot after every chunk stays stable",
+        "line" : 112,
+        "name" : "A snapshot after every chunk stays stable",
+        "parameterized" : true,
+        "suite" : "Sink tail uniqueness tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Collections/SinkTailUniquenessTests.swift",
+        "key" : "SinkTailUniquenessTests.swift:Resetting to an earlier state never writes into a later one",
+        "line" : 125,
+        "name" : "Resetting to an earlier state never writes into a later one",
+        "parameterized" : false,
+        "suite" : "Sink tail uniqueness tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Collections/SinkTailUniquenessTests.swift",
+        "key" : "SinkTailUniquenessTests.swift:A seed with room in its tail is never written into",
+        "line" : 152,
+        "name" : "A seed with room in its tail is never written into",
+        "parameterized" : false,
+        "suite" : "Sink tail uniqueness tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Collections/SinkTailUniquenessTests.swift",
+        "key" : "SinkTailUniquenessTests.swift:A reused stream does not append into the previous document",
+        "line" : 165,
+        "name" : "A reused stream does not append into the previous document",
+        "parameterized" : false,
+        "suite" : "Sink tail uniqueness tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Collections/SinkTailUniquenessTests.swift",
+        "key" : "SinkTailUniquenessTests.swift:A sink driven directly forgets its tail between parse calls",
+        "line" : 178,
+        "name" : "A sink driven directly forgets its tail between parse calls",
+        "parameterized" : false,
+        "suite" : "Sink tail uniqueness tests",
+        "target" : "StreamParsingTests"
+      },
+      {
         "file" : "Tests/StreamParsingTests/Collections/SnapshotStabilityTests.swift",
         "key" : "SnapshotStabilityTests.swift:Array states stay stable",
         "line" : 58,
@@ -5086,6 +5170,24 @@
         "key" : "StreamStringTests.swift:Answers the prefix question in the streaming direction",
         "line" : 558,
         "name" : "Answers the prefix question in the streaming direction",
+        "parameterized" : false,
+        "suite" : "Stream String Word Tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Collections/StreamStringTests.swift",
+        "key" : "StreamStringTests.swift:Whole appends land every byte at every length and offset",
+        "line" : 573,
+        "name" : "Whole appends land every byte at every length and offset",
+        "parameterized" : false,
+        "suite" : "Stream String Word Tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Collections/StreamStringTests.swift",
+        "key" : "StreamStringTests.swift:Table string members round-trip at every length",
+        "line" : 606,
+        "name" : "Table string members round-trip at every length",
         "parameterized" : false,
         "suite" : "Stream String Word Tests",
         "target" : "StreamParsingTests"
@@ -6726,6 +6828,87 @@
         "name" : "Delivers no further tokens after a rejection",
         "parameterized" : false,
         "suite" : "Error offset tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
+        "key" : "EscapedTailBlockTests.swift:Random escape-dense values agree with the per-run loop at every split",
+        "line" : 183,
+        "name" : "Random escape-dense values agree with the per-run loop at every split",
+        "parameterized" : false,
+        "suite" : "Escaped tail block tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
+        "key" : "EscapedTailBlockTests.swift:Values longer than the buffer agree with the per-run loop",
+        "line" : 194,
+        "name" : "Values longer than the buffer agree with the per-run loop",
+        "parameterized" : false,
+        "suite" : "Escaped tail block tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
+        "key" : "EscapedTailBlockTests.swift:Long runs between escapes agree with the per-run loop",
+        "line" : 217,
+        "name" : "Long runs between escapes agree with the per-run loop",
+        "parameterized" : false,
+        "suite" : "Escaped tail block tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
+        "key" : "EscapedTailBlockTests.swift:Every selector byte decodes or fails as the per-run loop has it",
+        "line" : 243,
+        "name" : "Every selector byte decodes or fails as the per-run loop has it",
+        "parameterized" : false,
+        "suite" : "Escaped tail block tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
+        "key" : "EscapedTailBlockTests.swift:Unicode escapes decode or fail as the per-run loop has them at every block offset",
+        "line" : 262,
+        "name" : "Unicode escapes decode or fail as the per-run loop has them at every block offset",
+        "parameterized" : true,
+        "suite" : "Escaped tail block tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
+        "key" : "EscapedTailBlockTests.swift:Values dense in unicode escapes agree with the per-run loop",
+        "line" : 289,
+        "name" : "Values dense in unicode escapes agree with the per-run loop",
+        "parameterized" : false,
+        "suite" : "Escaped tail block tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
+        "key" : "EscapedTailBlockTests.swift:Escaped backslashes and quotes are content at every block offset",
+        "line" : 316,
+        "name" : "Escaped backslashes and quotes are content at every block offset",
+        "parameterized" : false,
+        "suite" : "Escaped tail block tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
+        "key" : "EscapedTailBlockTests.swift:Invalid UTF-8 is rejected at the offset the per-run loop reports",
+        "line" : 372,
+        "name" : "Invalid UTF-8 is rejected at the offset the per-run loop reports",
+        "parameterized" : true,
+        "suite" : "Escaped tail block tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/JSON/EscapedTailBlockTests.swift",
+        "key" : "EscapedTailBlockTests.swift:Non-ASCII prose with escapes agrees at every split",
+        "line" : 395,
+        "name" : "Non-ASCII prose with escapes agrees at every split",
+        "parameterized" : false,
+        "suite" : "Escaped tail block tests",
         "target" : "StreamParsingTests"
       },
       {
@@ -9744,6 +9927,51 @@
         "target" : "StreamParsingTests"
       },
       {
+        "file" : "Tests/StreamParsingTests/Scanning/NumberDigitRunTests.swift",
+        "key" : "NumberDigitRunTests.swift:The digit run agrees with the byte walk at every extent",
+        "line" : 164,
+        "name" : "The digit run agrees with the byte walk at every extent",
+        "parameterized" : false,
+        "suite" : "Number digit run tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Scanning/NumberDigitRunTests.swift",
+        "key" : "NumberDigitRunTests.swift:Long runs wrap exactly as the byte walk does",
+        "line" : 189,
+        "name" : "Long runs wrap exactly as the byte walk does",
+        "parameterized" : false,
+        "suite" : "Number digit run tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Scanning/NumberDigitRunTests.swift",
+        "key" : "NumberDigitRunTests.swift:Every byte value ends the run where the byte walk does",
+        "line" : 207,
+        "name" : "Every byte value ends the run where the byte walk does",
+        "parameterized" : false,
+        "suite" : "Number digit run tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Scanning/NumberDigitRunTests.swift",
+        "key" : "NumberDigitRunTests.swift:The parser reports what the walk reports at every offset",
+        "line" : 260,
+        "name" : "The parser reports what the walk reports at every offset",
+        "parameterized" : false,
+        "suite" : "Number digit run tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Scanning/NumberDigitRunTests.swift",
+        "key" : "NumberDigitRunTests.swift:Corpus shapes agree bulk, split at every byte and byte-fed",
+        "line" : 284,
+        "name" : "Corpus shapes agree bulk, split at every byte and byte-fed",
+        "parameterized" : false,
+        "suite" : "Number digit run tests",
+        "target" : "StreamParsingTests"
+      },
+      {
         "file" : "Tests/StreamParsingTests/Scanning/Pow10TableTests.swift",
         "key" : "Pow10TableTests.swift:Every Entry Is The Correctly Rounded Power Of Ten",
         "line" : 11,
@@ -10132,8 +10360,17 @@
       },
       {
         "file" : "Tests/StreamParsingTests/Scanning/UTF8ValidationTests.swift",
+        "key" : "UTF8ValidationTests.swift:Every length at every offset in an exactly sized allocation",
+        "line" : 91,
+        "name" : "Every length at every offset in an exactly sized allocation",
+        "parameterized" : false,
+        "suite" : "UTF-8 validation tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Scanning/UTF8ValidationTests.swift",
         "key" : "UTF8ValidationTests.swift:Every two byte sequence",
-        "line" : 48,
+        "line" : 120,
         "name" : "Every two byte sequence",
         "parameterized" : false,
         "suite" : "UTF-8 validation tests",
@@ -10142,7 +10379,7 @@
       {
         "file" : "Tests/StreamParsingTests/Scanning/UTF8ValidationTests.swift",
         "key" : "UTF8ValidationTests.swift:Every two byte sequence inside ASCII",
-        "line" : 57,
+        "line" : 129,
         "name" : "Every two byte sequence inside ASCII",
         "parameterized" : false,
         "suite" : "UTF-8 validation tests",
@@ -10151,7 +10388,7 @@
       {
         "file" : "Tests/StreamParsingTests/Scanning/UTF8ValidationTests.swift",
         "key" : "UTF8ValidationTests.swift:Three and four byte leads against every second byte",
-        "line" : 66,
+        "line" : 138,
         "name" : "Three and four byte leads against every second byte",
         "parameterized" : false,
         "suite" : "UTF-8 validation tests",
@@ -10160,7 +10397,7 @@
       {
         "file" : "Tests/StreamParsingTests/Scanning/UTF8ValidationTests.swift",
         "key" : "UTF8ValidationTests.swift:Sequences cut by the end of the run",
-        "line" : 78,
+        "line" : 150,
         "name" : "Sequences cut by the end of the run",
         "parameterized" : false,
         "suite" : "UTF-8 validation tests",
@@ -10169,7 +10406,7 @@
       {
         "file" : "Tests/StreamParsingTests/Scanning/UTF8ValidationTests.swift",
         "key" : "UTF8ValidationTests.swift:Valid text at every length and one byte corrupted at every position",
-        "line" : 91,
+        "line" : 163,
         "name" : "Valid text at every length and one byte corrupted at every position",
         "parameterized" : false,
         "suite" : "UTF-8 validation tests",
@@ -10178,7 +10415,7 @@
       {
         "file" : "Tests/StreamParsingTests/Scanning/UTF8ValidationTests.swift",
         "key" : "UTF8ValidationTests.swift:Random byte strings",
-        "line" : 117,
+        "line" : 189,
         "name" : "Random byte strings",
         "parameterized" : false,
         "suite" : "UTF-8 validation tests",
@@ -10455,6 +10692,15 @@
         "target" : "StreamParsingTests"
       },
       {
+        "file" : "Tests/StreamParsingTests/Schema/StreamFieldTableTests.swift",
+        "key" : "StreamFieldTableTests.swift:Long-key tail compare checks every byte at every length",
+        "line" : 257,
+        "name" : "Long-key tail compare checks every byte at every length",
+        "parameterized" : true,
+        "suite" : "StreamFieldTableTests",
+        "target" : "StreamParsingTests"
+      },
+      {
         "file" : "Tests/StreamParsingTests/Schema/StreamFrameTests.swift",
         "key" : "StreamFrameTests.swift:A frame writes through a child its parent owns",
         "line" : 107,
@@ -10551,6 +10797,42 @@
         "name" : "Stream Lock Protects Generic State Across Threads",
         "parameterized" : false,
         "suite" : "Stream Lock Tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Schema/StreamTemplateCopyTests.swift",
+        "key" : "StreamTemplateCopyTests.swift:Copies A Payload With Spare Bits",
+        "line" : 63,
+        "name" : "Copies A Payload With Spare Bits",
+        "parameterized" : false,
+        "suite" : "Stream Template Copy Tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Schema/StreamTemplateCopyTests.swift",
+        "key" : "StreamTemplateCopyTests.swift:Copies A Payload Without Spare Bits Along With Its Tag",
+        "line" : 70,
+        "name" : "Copies A Payload Without Spare Bits Along With Its Tag",
+        "parameterized" : false,
+        "suite" : "Stream Template Copy Tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Schema/StreamTemplateCopyTests.swift",
+        "key" : "StreamTemplateCopyTests.swift:The Copy Owns Its References",
+        "line" : 79,
+        "name" : "The Copy Owns Its References",
+        "parameterized" : false,
+        "suite" : "Stream Template Copy Tests",
+        "target" : "StreamParsingTests"
+      },
+      {
+        "file" : "Tests/StreamParsingTests/Schema/StreamTemplateCopyTests.swift",
+        "key" : "StreamTemplateCopyTests.swift:Field Table Releases Its Prepare Boxes",
+        "line" : 96,
+        "name" : "Field Table Releases Its Prepare Boxes",
+        "parameterized" : false,
+        "suite" : "Stream Template Copy Tests",
         "target" : "StreamParsingTests"
       },
       {
@@ -12071,11 +12353,11 @@
         "tests" : 80
       },
       {
-        "files" : 86,
+        "files" : 90,
         "name" : "StreamParsingTests",
-        "parameterized" : 211,
+        "parameterized" : 215,
         "path" : "Tests/StreamParsingTests",
-        "tests" : 866
+        "tests" : 897
       },
       {
         "files" : 2,

@@ -113,8 +113,10 @@ stream_parsing_tbl1q_u8(stream_parsing_u8x16 table, stream_parsing_u8x16 indices
 
 // The UTF-8 validator's block kernel, whole: three nibble table lookups ANDed (Keiser and Lemire's
 // special cases), XORed with 0x80 where a three or four byte lead requires a continuation; nonzero
-// lanes are errors. The three "previous byte" views are the caller's unaligned loads at i-1/2/3.
-// Measured: composed in Swift 2.6x slower, `ext`-shifted views 10% slower; keep the C kernel.
+// lanes are errors. The three "previous byte" views are the caller's: in the run loop, unaligned
+// loads at i-1/2/3; for a block with nothing before it, `ext` against zero (below).
+// Measured: composed in Swift 2.6x slower, `ext`-shifted views in the run loop 10% slower; keep
+// the C kernel.
 STREAM_PARSING_SIMD_SHIM stream_parsing_u8x16
 stream_parsing_utf8_block_errors(stream_parsing_u8x16 current_block,
                                  stream_parsing_u8x16 previous1_block,
@@ -747,8 +749,9 @@ STREAM_PARSING_SIMD_SHIM const uint32_t *stream_parsing_base64_decode_tables(voi
   return stream_parsing_base64_decode_storage;
 }
 
-// 10^k as an integer for k in 0 ... 16: the fixed-extent number kernel's `integer * 10^tail`. A
-// function-local table rather than a Swift array, which would be a lazily initialised global.
+// 10^k as an integer for k in 0 ... 16: `streamAccumulateLeadingDigits` scales the magnitude by
+// 10^count for the 0...7 numerals it takes from a partial word. A function-local table rather
+// than a Swift array, which would be a lazily initialised global.
 STREAM_PARSING_SIMD_SHIM uint64_t stream_parsing_pow10_u64(uint32_t k) {
   static const uint64_t table[17] = {
     1ULL, 10ULL, 100ULL, 1000ULL, 10000ULL, 100000ULL, 1000000ULL, 10000000ULL, 100000000ULL,

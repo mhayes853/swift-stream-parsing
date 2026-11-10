@@ -61,10 +61,15 @@ if only == "all" || only == "content" {
   ]).extract()
 
   var sources = swift.decls
-  sources.merge(
-    try CHeaderExtractor(
-      path: path("Sources", "StreamParsingShims", "include", "StreamParsingShims.h")
-    ).extract(), uniquingKeysWith: +)
+  // The header holds the inline kernels; `Unescape.c` holds the one out-of-line kernel, whose
+  // comments carry the escaped tail's measurements. Same shape, same extractor.
+  let cFiles = [
+    path("Sources", "StreamParsingShims", "include", "StreamParsingShims.h"),
+    path("Sources", "StreamParsingShims", "Unescape.c")
+  ]
+  for file in cFiles {
+    sources.merge(try CHeaderExtractor(path: file).extract(), uniquingKeysWith: +)
+  }
 
   // Paths are stored relative to the repository root so the bundle does not embed a machine's
   // checkout location and stays byte-identical across worktrees.
@@ -84,7 +89,7 @@ if only == "all" || only == "content" {
     stats: ContentBundle.Stats(
       sectionCount: doc.sections.count, tableCount: doc.sections.reduce(0) { $0 + $1.tables.count },
       codeBlockCount: doc.sections.reduce(0) { $0 + $1.codeBlocks.count },
-      declCount: sources.values.reduce(0) { $0 + $1.count }, fileCount: swift.fileCount + 1,
+      declCount: sources.values.reduce(0) { $0 + $1.count }, fileCount: swift.fileCount + cFiles.count,
       verdictCounts: verdictCounts, datedSections: dated,
       firstRecorded: doc.sections.compactMap(\.history?.recorded).min(),
       lastRecorded: doc.sections.compactMap(\.history?.revised).max()))

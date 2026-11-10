@@ -763,8 +763,10 @@ package func streamNumberRunEndTail(base: UnsafeRawPointer, from: Int, to: Int) 
 
 // The classic eight-byte conversion as a SIMD lane tree: '0'-biased bytes combine pairwise, the lane
 // count halving each stage and widening only where the next place value needs it. Every stage is
-// exact, so the block agrees with the scalar loop and only the accumulate below wraps, keeping
+// exact, so the block agrees with the scalar loop and only the accumulate wraps, keeping
 // overflowed magnitudes congruent mod 2^64. Measured: 7-13% over the SWAR form it replaced.
+// `streamAccumulateDigits` no longer calls it: its SWAR class test per word is also the
+// conversion's input (PROGRESSION.md, "Landed: a number's digit runs finish in one SWAR word").
 @inlinable
 @inline(__always)
 package func streamParseEightDigits(_ chunk: SIMD8<UInt8>) -> UInt64 {
