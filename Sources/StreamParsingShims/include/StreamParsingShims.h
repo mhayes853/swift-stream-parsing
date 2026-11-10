@@ -307,6 +307,22 @@ static inline uint64_t stream_parsing_movemask4(
   return vgetq_lane_u64(vreinterpretq_u64_u8(sum0), 0);
 }
 
+// The same word from a block loaded with `vld4q_u8`, where vector j lane i holds byte 4i + j: three
+// shift-right-inserts stack the four vectors' top bits into one lane's high nibble (byte 4i + 3 at
+// bit 7 down to 4i at bit 4), a fourth copies that nibble into the low half, and `shrn #4` packs
+// lane pairs into bytes -- byte k of the word is bits 8k ... 8k + 7, in order. Five vector
+// instructions against `movemask4`'s seven, and only bit 7 of each lane is read, so a class the
+// lookup already leaves in bit 7 needs no compare at all. Measured: see the skip classifier.
+static inline uint64_t stream_parsing_movemask4_deinterleaved(
+  uint8x16_t m0, uint8x16_t m1, uint8x16_t m2, uint8x16_t m3
+) {
+  uint8x16_t t0 = vsriq_n_u8(m1, m0, 1);
+  uint8x16_t t1 = vsriq_n_u8(m3, m2, 1);
+  uint8x16_t t2 = vsriq_n_u8(t1, t0, 2);
+  uint8x16_t t3 = vsriq_n_u8(t2, t2, 4);
+  return vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(vreinterpretq_u16_u8(t3), 4)), 0);
+}
+
 // Quote parity: bit i becomes the XOR of bits 0...i, which turns a mask of unescaped quotes into
 // "is byte i inside a string" -- the opening quote included, the closing one not. One carryless
 // multiply by all ones where the target has it, six shift-xors where it does not.
@@ -337,18 +353,26 @@ STREAM_PARSING_SIMD_SHIM stream_parsing_skip_classes
 stream_parsing_classify_skip_block(
   const uint8_t *p, uint64_t in_string_carry, uint64_t ends_odd_carry
 ) {
-  uint8x16_t v0 = vld1q_u8(p);
-  uint8x16_t v1 = vld1q_u8(p + 16);
-  uint8x16_t v2 = vld1q_u8(p + 32);
-  uint8x16_t v3 = vld1q_u8(p + 48);
+  // Deinterleaved: every class here is a function of one byte, so the lanes may hold the block in
+  // any order, and `movemask4_deinterleaved` puts the bits back in sequence. The loop that calls
+  // this advances by 64 whatever the masks say, so it runs at the kernel's throughput, which is
+  // what `ld4` buys; its extra latency (~4 cycles to the first mask) is hidden here.
+  // Measured (ns/block, kernel alone): Twitter 8.56 -> 7.61, CITM 8.03 -> 6.75, GSoC 6.73 -> 6.74;
+  // typed Twitter +2.2%. The structural classifier below keeps four plain loads: its walk waits
+  // on `starts`, and the same change there cost raw Twitter/CITM/GitHub 4.3-4.8%.
+  const uint8x16x4_t block = vld4q_u8(p);
+  uint8x16_t v0 = block.val[0];
+  uint8x16_t v1 = block.val[1];
+  uint8x16_t v2 = block.val[2];
+  uint8x16_t v3 = block.val[3];
 
   const uint8x16_t backslash_byte = vdupq_n_u8('\\');
   const uint8x16_t quote_byte = vdupq_n_u8('"');
-  uint64_t backslash = stream_parsing_movemask4(
+  uint64_t backslash = stream_parsing_movemask4_deinterleaved(
     vceqq_u8(v0, backslash_byte), vceqq_u8(v1, backslash_byte),
     vceqq_u8(v2, backslash_byte), vceqq_u8(v3, backslash_byte)
   );
-  uint64_t quote = stream_parsing_movemask4(
+  uint64_t quote = stream_parsing_movemask4_deinterleaved(
     vceqq_u8(v0, quote_byte), vceqq_u8(v1, quote_byte),
     vceqq_u8(v2, quote_byte), vceqq_u8(v3, quote_byte)
   );
@@ -384,7 +408,6 @@ stream_parsing_classify_skip_block(
   };
   const uint8x16_t low_nibble = vdupq_n_u8(0x0F);
   const uint8x16_t accepted_bits = vdupq_n_u8(0x7F);
-  const uint8x16_t bracket_bit = vdupq_n_u8(0x80);
   const uint8x16_t space = vdupq_n_u8(0x20);
 
   uint8x16_t c0 = vandq_u8(
@@ -399,15 +422,13 @@ stream_parsing_classify_skip_block(
   uint8x16_t c3 = vandq_u8(
     vqtbl1q_u8(lo_table, vandq_u8(v3, low_nibble)), vqtbl1q_u8(hi_table, vshrq_n_u8(v3, 4))
   );
-  uint64_t accepted = stream_parsing_movemask4(
+  uint64_t accepted = stream_parsing_movemask4_deinterleaved(
     vtstq_u8(c0, accepted_bits), vtstq_u8(c1, accepted_bits),
     vtstq_u8(c2, accepted_bits), vtstq_u8(c3, accepted_bits)
   );
-  uint64_t brackets = stream_parsing_movemask4(
-    vtstq_u8(c0, bracket_bit), vtstq_u8(c1, bracket_bit),
-    vtstq_u8(c2, bracket_bit), vtstq_u8(c3, bracket_bit)
-  );
-  uint64_t control = stream_parsing_movemask4(
+  // The bracket class *is* bit 7 of the class byte, the only bit the movemask reads: no test.
+  uint64_t brackets = stream_parsing_movemask4_deinterleaved(c0, c1, c2, c3);
+  uint64_t control = stream_parsing_movemask4_deinterleaved(
     vcltq_u8(v0, space), vcltq_u8(v1, space), vcltq_u8(v2, space), vcltq_u8(v3, space)
   );
 
@@ -432,6 +453,10 @@ STREAM_PARSING_SIMD_SHIM stream_parsing_structural_classes
 stream_parsing_classify_structural_block(
   const uint8_t *p, uint64_t in_string_carry, uint64_t ends_odd_carry
 ) {
+  // Plain loads and `movemask4`, not the skip classifier's `vld4q_u8` + shift-insert form: that is
+  // 14% cheaper per block (9.99 -> 8.57 ns) but ~1.1 ns longer from the load to `starts`, and this
+  // walk re-anchors on tokens, so it waits on that latency. Measured: raw Twitter -4.8%, CITM
+  // -4.3%, GitHub -4.3% against typed CITM +1.4%, Twitter full +0.9%.
   uint8x16_t v0 = vld1q_u8(p);
   uint8x16_t v1 = vld1q_u8(p + 16);
   uint8x16_t v2 = vld1q_u8(p + 32);
