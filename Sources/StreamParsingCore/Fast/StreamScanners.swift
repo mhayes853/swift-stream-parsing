@@ -846,7 +846,8 @@ package func streamEightDigitValue(_ digits: UInt64) -> UInt64 {
 @inlinable
 @inline(__always)
 package func streamAccumulateDigits(
-  base: UnsafeRawPointer, from: Int, to: Int, into magnitude: inout UInt64
+  base: UnsafeRawPointer, from: Int, to: Int, into magnitude: inout UInt64,
+  oneByteStep: Bool = false
 ) -> Int {
   var index = from
   while index &+ 8 <= to {
@@ -860,6 +861,15 @@ package func streamAccumulateDigits(
     index &+= 8
   }
   guard index < to else { return index }
+  // One byte left -- CITM's nine-digit ids -- is one step, cheaper than the word's shift,
+  // class test and conversion. Only where the caller asks: the integer segment, which is where
+  // an id's ninth digit lands; a fraction's tail is longer.
+  if oneByteStep, to &- index == 1 {
+    let digit = base.load(fromByteOffset: index, as: UInt8.self) &- .asciiZero
+    guard digit < 10 else { return index }
+    magnitude = magnitude &* 10 &+ UInt64(digit)
+    return to
+  }
   if to >= 8 {
     let word =
       UInt64(littleEndian: base.loadUnaligned(fromByteOffset: to &- 8, as: UInt64.self))

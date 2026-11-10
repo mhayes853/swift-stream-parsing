@@ -1560,7 +1560,7 @@ public struct JSONParser: ~Copyable {
 
     var magnitude: UInt64 = 0
     let integerStart = i
-    i = streamAccumulateDigits(base: base, from: i, to: to, into: &magnitude)
+    i = streamAccumulateDigits(base: base, from: i, to: to, into: &magnitude, oneByteStep: true)
     let integerDigits = i &- integerStart
     do {
       guard integerDigits > 0 else { throw self.error(.invalidNumber, at: reportAt) }
