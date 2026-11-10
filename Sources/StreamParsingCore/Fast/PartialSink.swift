@@ -815,59 +815,96 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     self.stringEnd()
   }
 
+  // The three homogeneous routes (`[Double]`, `[Int]`, a `SIMD2/3/4<Double>` lane) finish here when
+  // the token converts exactly and the slot is ready -- room in a tail this call already proved
+  // unique, a lane inside the vector's arity -- with no call on that path, so `number` needs no
+  // frame. Everything else, including those routes' own misses, is a tail call into an outlined
+  // full path that repeats the work from the start. Before, the object arms inline here made every
+  // element pay a twelve-register prologue, and the conversion was two more frames.
   public mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
-    switch self.activeLeafRoute {
-    case .arrayDouble:
-      self.appendHomogeneousDouble(bytes, info: info)
-      return
-    case .arrayInt:
-      self.appendHomogeneousInt(bytes, info: info)
-      return
-    case .simd2Double, .simd3Double, .simd4Double:
-      self.storeSIMDDoubleLane(bytes, info: info)
-      return
-    default:
-      // SIMD lanes included: the frame carries the lane kind and the schema the lane stride.
-      if self.activeElementKindBits != 0 {
-        self.applyKnownNumber(bytes, info: info)
+    let route = self.activeLeafRoute
+    if route == .arrayDouble {
+      if let value = streamParseDoubleExact(info), let top = self.topFrame,
+        top.pointee.storage.assumingMemoryBound(to: StreamArray<Double>.self).pointee
+          .appendClosedIfReady(value, knownUniqueTail: self.knownUniqueTail)
+      {
         return
       }
-      // A scalar under an object frame always directly follows its key, so the matched field is
-      // fresh and the value is a typed store at the member's offset: no frame resolution, no
-      // `ScalarTarget`.
-      if let top = self.topFrame, top.pointee.schema.shape == .object {
-        let field = top.pointee.pendingField
-        switch top.pointee.schema.keyRouting {
-        case .table:
-          if field >= 0 {
-            let entry = top.pointee.schema.fieldEntries.unsafelyUnwrapped + Int(field)
-            let kind = entry.pointee.kind
-            let result =
-              kind == .custom
-              ? top.pointee.schema.applyNumber(top.pointee.storage, entry.pointee.index, bytes, info)
-              : kind == .delegated
-                ? Self.delegateNumber(
-                  entry, top.pointee.storage + Int(entry.pointee.offset), bytes, info
-                )
-                : Self.writeTableNumber(
-                  entry, member: top.pointee.storage + Int(entry.pointee.offset), bytes, info
-                )
-            if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
-          }
-          return
-        case .match:
-          if field >= 0 {
-            let result = top.pointee.schema.applyNumber(top.pointee.storage, field, bytes, info)
-            if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
-          }
-          return
-        default:
-          break
-        }
-      }
-      self.applyNumberNormally(bytes, info: info)
+      self.appendHomogeneousDouble(bytes, info: info)
       return
     }
+    if route == .arrayInt {
+      if let value = streamParseIntExact(info), let top = self.topFrame,
+        top.pointee.storage.assumingMemoryBound(to: StreamArray<Int>.self).pointee
+          .appendClosedIfReady(value, knownUniqueTail: self.knownUniqueTail)
+      {
+        return
+      }
+      self.appendHomogeneousInt(bytes, info: info)
+      return
+    }
+    // `simd2Double ... simd4Double` are contiguous, and the arity is the distance from two below.
+    let lane = route.rawValue &- _StreamLeafRoute.simd2Double.rawValue
+    if lane < 3 {
+      if let value = streamParseDoubleExact(info), let top = self.topFrame {
+        let index = top.pointee.pendingField
+        if index < Int32(lane) &+ 2 {
+          top.pointee.pendingField = index &+ 1
+          (top.pointee.storage + Int(index) &* MemoryLayout<Double>.stride)
+            .assumingMemoryBound(to: Double.self).pointee = value
+          return
+        }
+      }
+      self.storeSIMDDoubleLane(bytes, info: info)
+      return
+    }
+    // SIMD lanes included: the frame carries the lane kind and the schema the lane stride.
+    if self.activeElementKindBits != 0 {
+      self.applyKnownNumber(bytes, info: info)
+      return
+    }
+    self.numberRouted(bytes, info: info)
+  }
+
+  // The object and closure number routes, outlined so `number` is entered with no frame: inline,
+  // the table arm's twelve-register frame was paid by every `[Double]` element and SIMD lane too.
+  // The entry tail-calls this, and the typed slots (`applyKnownNumber`) directly.
+  @inline(never)
+  private mutating func numberRouted(_ bytes: Span<UInt8>, info: NumberInfo) {
+    // A scalar under an object frame always directly follows its key, so the matched field is
+    // fresh and the value is a typed store at the member's offset: no frame resolution, no
+    // `ScalarTarget`.
+    if let top = self.topFrame, top.pointee.schema.shape == .object {
+      let field = top.pointee.pendingField
+      switch top.pointee.schema.keyRouting {
+      case .table:
+        if field >= 0 {
+          let entry = top.pointee.schema.fieldEntries.unsafelyUnwrapped + Int(field)
+          let kind = entry.pointee.kind
+          let result =
+            kind == .custom
+            ? top.pointee.schema.applyNumber(top.pointee.storage, entry.pointee.index, bytes, info)
+            : kind == .delegated
+              ? Self.delegateNumber(
+                entry, top.pointee.storage + Int(entry.pointee.offset), bytes, info
+              )
+              : Self.writeTableNumber(
+                entry, member: top.pointee.storage + Int(entry.pointee.offset), bytes, info
+              )
+          if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
+        }
+        return
+      case .match:
+        if field >= 0 {
+          let result = top.pointee.schema.applyNumber(top.pointee.storage, field, bytes, info)
+          if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
+        }
+        return
+      default:
+        break
+      }
+    }
+    self.applyNumberNormally(bytes, info: info)
   }
 
   public mutating func boolean(_ value: Bool) {
@@ -1147,11 +1184,11 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     }
   }
 
-  // Forced inline: `number`'s hottest arm on number-dense corpora, and `number` is itself out of
-  // line, so an outlined call per element was most of this route's gap.
-  @inline(__always)
+  // The full `[Double]` element path, tail-called by `number` when its call-free attempt declines:
+  // a token past Clinger's tier, a tail to seal, grow or prove unique, an open element to drain.
+  @inline(never)
   private mutating func appendHomogeneousDouble(_ bytes: Span<UInt8>, info: NumberInfo) {
-    guard let value = Double(streamParsing: bytes, info: info) else {
+    guard let value = streamParseDoubleInline(bytes, info: info) else {
       self.recordFailure(.typeMismatch)
       return
     }
@@ -1160,10 +1197,9 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       .appendClosed(value, knownUniqueTail: &self.knownUniqueTail)
   }
 
-  // `@_transparent`, not `@inline(__always)`: once the append carried `knownUniqueTail`, the
-  // attribute stopped holding here and `number` tail-called an outlined copy with its own
-  // five-pair prologue. Measured inline again: Mesh typed +1.0%, CITM typed +1.1%.
-  @_transparent
+  // The full `[Int]` element path, on the same terms as `appendHomogeneousDouble`. (Inlined into
+  // `number` it needed `@_transparent` to stay there; outlined, the fast path above replaced it.)
+  @inline(never)
   private mutating func appendHomogeneousInt(_ bytes: Span<UInt8>, info: NumberInfo) {
     guard let value = Int(streamParsing: bytes, info: info) else {
       self.recordFailure(.typeMismatch)
@@ -1177,8 +1213,9 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   // The lane store for a `SIMD2/3/4<Double>` frame (Canada's coordinates). These routes exist only
   // for non-optional `.double` elements, so `knownScalarSlot` and `storeNumber`'s twelve-way switch
   // collapse to a bounds check and a scaled store. The cursor is bumped before the conversion so a
-  // refused token leaves the frame where `knownScalarSlot` would.
-  @inline(__always)
+  // refused token leaves the frame where `knownScalarSlot` would. The full path; `number` stores an
+  // exact lane itself and tail-calls this for the rest (Canada: the 91% past 2^53).
+  @inline(never)
   private mutating func storeSIMDDoubleLane(_ bytes: Span<UInt8>, info: NumberInfo) {
     guard let top = self.topFrame else { return }
     let index = top.pointee.pendingField
@@ -1188,7 +1225,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       return
     }
     top.pointee.pendingField = index &+ 1
-    guard let value = Double(streamParsing: bytes, info: info) else {
+    guard let value = streamParseDoubleInline(bytes, info: info) else {
       self.recordFailure(.typeMismatch)
       return
     }

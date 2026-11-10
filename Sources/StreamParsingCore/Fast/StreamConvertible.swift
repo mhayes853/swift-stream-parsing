@@ -153,6 +153,79 @@ func streamParseFloatingPoint<T: BinaryFloatingPoint & LosslessStringConvertible
   return streamParseFloatingPointFallback(bytes, as: T.self)
 }
 
+// `Double(streamParsing:info:)` split for the sink's homogeneous routes (`[Double]` elements and
+// SIMD lanes): Clinger's exact path inline in the caller, everything else behind one outlined
+// call. Through the initializer, a Mesh element paid three frames (the sink's 12-register entry,
+// the initializer's, Eisel-Lemire's) for what is a `ucvtf` and an `fdiv`. Same tiers in the same
+// order as `streamParseFloatingPoint`, so the value is bit-identical. `Double`'s conformance is
+// this module's and takes the default `streamConvertDecimal`, so calling the kernel directly
+// is the same conversion.
+@inlinable
+@inline(__always)
+func streamParseDoubleInline(_ bytes: Span<UInt8>, info: NumberInfo) -> Double? {
+  if let value = streamParseDoubleExact(info) { return value }
+  return streamParseDoubleSlow(bytes, info: info)
+}
+
+// Clinger's tier alone: the value when the token is exact in `Double`, nil to say "ask the rest",
+// never "invalid". No call on any path, so a caller can keep its own path frameless.
+@inlinable
+@inline(__always)
+func streamParseDoubleExact(_ info: NumberInfo) -> Double? {
+  let flags = info.flags.rawValue
+  let magnitude = info.magnitude
+  let exponent = Int(info.exponent)
+  // `overflowed` first: a wrapped magnitude can be small.
+  guard flags & NumberInfo.Flags.overflowed.rawValue == 0, magnitude <= (1 as UInt64) << 53
+  else { return nil }
+  let unsigned = Double(magnitude)
+  let significand = flags & NumberInfo.Flags.negative.rawValue != 0 ? -unsigned : unsigned
+  if exponent == 0 { return significand }
+  let index = exponent < 0 ? -exponent : exponent
+  guard index < streamExactPow10Count else { return nil }
+  let scale = streamExactPow10(index)
+  // No finiteness test: 2^53 * 10^22 is far inside `Double`'s range.
+  return exponent >= 0 ? significand * scale : significand / scale
+}
+
+// `Int(streamParsing:info:)` for a token that needs no rescan: nil for anything the full
+// initializer has to look at again (an overflowed accumulator) or rejects. Call-free.
+@inlinable
+@inline(__always)
+func streamParseIntExact(_ info: NumberInfo) -> Int? {
+  let notPlain =
+    NumberInfo.Flags.fraction.rawValue | NumberInfo.Flags.exponent.rawValue
+    | NumberInfo.Flags.overflowed.rawValue
+  let flags = info.flags.rawValue
+  guard flags & notPlain == 0, info.exponent == 0 else { return nil }
+  let magnitude = info.magnitude
+  if flags & NumberInfo.Flags.negative.rawValue != 0 {
+    // `0 &- 2^63` is `Int.min`, the one negative magnitude without a positive twin.
+    guard magnitude <= UInt64(Int.max) &+ 1 else { return nil }
+    return 0 &- Int(truncatingIfNeeded: magnitude)
+  }
+  guard magnitude <= UInt64(Int.max) else { return nil }
+  return Int(truncatingIfNeeded: magnitude)
+}
+
+// What the exact path declines: Eisel-Lemire, then the complete-token fallback. Inline as well:
+// its callers are the sink's outlined full paths, so the kernel runs in their frame rather than
+// two more.
+@inlinable
+@inline(__always)
+func streamParseDoubleSlow(_ bytes: Span<UInt8>, info: NumberInfo) -> Double? {
+  let flags = info.flags.rawValue
+  if flags & NumberInfo.Flags.overflowed.rawValue == 0,
+    let value = streamEiselLemire(
+      magnitude: info.magnitude, exponent: Int(info.exponent),
+      negative: flags & NumberInfo.Flags.negative.rawValue != 0, as: Double.self
+    )
+  {
+    return value
+  }
+  return streamParseFloatingPointFallback(bytes, as: Double.self)
+}
+
 @usableFromInline
 func streamParseFloatingPointFallback<T: BinaryFloatingPoint & LosslessStringConvertible>(
   _ bytes: Span<UInt8>, as type: T.Type

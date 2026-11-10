@@ -765,6 +765,22 @@ extension StreamArray {
     self.advance()
   }
 
+  // `appendClosed` when nothing but the store is left to do: no open element to drain, and room in
+  // the tail `known` already proved unique. Otherwise false with nothing written, and the caller
+  // takes the full path. No call on any path, which is what lets `PartialSink.number` run frameless.
+  @inlinable
+  @inline(__always)
+  mutating func appendClosedIfReady(_ element: Element, knownUniqueTail known: UInt) -> Bool {
+    guard self.pending == nil, self.tailBits == known,
+      self.tailCount < self.tail.unsafelyUnwrapped.slotCapacity
+    else { return false }
+    // Debug builds ask the runtime anyway, as `nextSlot(knownUniqueTail:)` does.
+    assert(isKnownUniquelyReferenced(&self.tail), "A remembered unique tail is shared")
+    (self.tail.unsafelyUnwrapped.base + self.tailCount).initialize(to: element)
+    self.advance()
+    return true
+  }
+
   // `_openElement(_:)` for the sink's fixed-width element opens.
   @inlinable
   @inline(__always)

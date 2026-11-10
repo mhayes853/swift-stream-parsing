@@ -89,7 +89,10 @@ package func streamPowerOfTwoExponent(_ exponent: Int) -> Int {
   ((152_170 &+ 65_536) &* exponent) >> 16 &+ 63
 }
 
+// Forced inline: every caller is a conversion that is itself out of line (the float initializers,
+// the sink's full `Double` paths), and as its own frame it was a third call per Canada lane.
 @inlinable
+@inline(__always)
 func streamEiselLemire<T: BinaryFloatingPoint>(
   magnitude: UInt64, exponent: Int, negative: Bool, as type: T.Type
 ) -> T? {

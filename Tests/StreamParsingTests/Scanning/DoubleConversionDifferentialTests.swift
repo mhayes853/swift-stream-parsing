@@ -75,6 +75,20 @@ struct DifferentialSink<T: StreamDifferentialFloat>: StreamParseSink {
     let oracle = self.parseReference(text).flatMap { $0.isFinite ? $0 : nil }
     let value = T(streamParsing: bytes, info: info)
     if value == nil { self.nilCount += 1 }
+    // The sink's homogeneous `Double` routes convert through `streamParseDoubleInline`, a split of
+    // the same tiers; it must agree with the initializer bit for bit on every token.
+    if T.self == Double.self {
+      let split = streamParseDoubleInline(bytes, info: info)
+      let agrees =
+        switch (split, value as! Double?) {
+        case (nil, nil): true
+        case let (split?, value?): split.bitPattern == value.bitPattern
+        default: false
+        }
+      if !agrees, self.mismatches.count < 16 {
+        self.mismatches.append("\(text): streamParseDoubleInline disagrees with the initializer")
+      }
+    }
     switch (value, oracle) {
     case (nil, nil):
       return
@@ -184,6 +198,43 @@ struct `Double conversion differential tests` {
       #expect(sink.count == 1, "\(token) produced \(sink.count) tokens")
       #expect(sink.mismatches.isEmpty, "\(sink.mismatches)")
     }
+  }
+
+  // Random decimals over every tier's boundary: 1-22 significant digits (so the exact path's 2^53
+  // edge, Eisel-Lemire and the overflowed accumulator all occur), fraction and exponent spellings,
+  // and exponents across the exact window, the table and beyond the range. Seeded, so a failure
+  // reproduces.
+  @Test
+  func `Random decimals convert exactly as Double(String) does`() throws {
+    var generator = `Escaped tail block tests`.Generator(state: 0x5EED_F10A7)
+    var text = "["
+    for index in 0..<20_000 {
+      if index > 0 { text += "," }
+      if generator.next() & 1 == 0 { text += "-" }
+      let digitCount = Int(generator.next() % 22) + 1
+      var digits = ""
+      for position in 0..<digitCount {
+        let digit = generator.next() % 10
+        digits += String(position == 0 && digitCount > 1 ? max(digit, 1) : digit)
+      }
+      switch generator.next() % 4 {
+      case 0:
+        text += digits
+      case 1:
+        let split = Int(generator.next() % UInt64(digitCount))
+        text += split == 0 ? "0." + digits : String(digits.prefix(split)) + "." + digits.dropFirst(split)
+      case 2:
+        let exponent = Int(generator.next() % 60) - 30
+        text += digits + "e\(exponent)"
+      default:
+        let exponent = Int(generator.next() % 700) - 350
+        text += digits.prefix(1) + (digitCount > 1 ? "." + digits.dropFirst() : "") + "E\(exponent)"
+      }
+    }
+    text += "]"
+    let sink = try differentialCheck(Array(text.utf8), chunk: .max, as: Double.self)
+    #expect(sink.count == 20_000)
+    #expect(sink.mismatches.isEmpty, "\(sink.mismatches)")
   }
 
   // The constants the kernel is parameterised on, pinned to binary64's parameters: a wrong one
