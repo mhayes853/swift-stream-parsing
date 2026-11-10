@@ -480,13 +480,178 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   // One load and one switch over the schema's precomputed routing. `ignore` spares the closure call
   // (load, retain, indirect call, release) on frames over undeclared subtrees, which see most keys
   // of a partly modelled document -- 52% of `twitter.json`'s.
+  //
+  // Outlined on purpose: frameless, it is small enough that the walk inlined it, which grew
+  // `consumeStructuralBlocks<PartialSink>` from 1383 to 1550 instructions and cost every typed row.
+  @inline(never)
   public mutating func key(_ bytes: Span<UInt8>) {
     guard let top = self.topFrame else { return }
-    // Read through the frame each time, not bound to a local: a local passed to `enterKey` kept the
-    // schema alive across the call, a retain per dictionary entry. In place it is a borrow.
     switch top.pointee.schema.keyDispatch {
     case .table:
-      top.pointee.pendingField = Self.matchTable(top, bytes)
+      Self.matchTableKey(top, bytes)
+    case .ignore:
+      top.pointee.pendingField = -1
+    case .dictionary:
+      self.dictionaryKey(top, bytes)
+    case .match, .observedTable, .observedMatch:
+      self.closureKey(top, bytes)
+    }
+  }
+
+  // `matchTable` for `key`, writing the result. The scan stops at the first entry whose first word
+  // and length match; a key of at most a word is then matched, and a longer one hands its tail to
+  // `matchTableKeyTail`. Nothing in the scan is a call, so `key` keeps no frame: with the tail
+  // compare called from inside the loop, nine values lived across it and `key` saved twelve
+  // registers per key for every arm.
+  @inline(__always)
+  private static func matchTableKey(_ top: UnsafeMutablePointer<BorrowedFrame>, _ key: Span<UInt8>) {
+    let length = key.count
+    guard length <= Int(UInt16.max) else {
+      top.pointee.pendingField = -1
+      return
+    }
+    let word = key._streamPaddedLeadingWord()
+    let keyLength = UInt16(truncatingIfNeeded: length)
+    let entries = top.pointee.schema.fieldEntries.unsafelyUnwrapped
+    if let index = top.pointee.schema.fieldIndex {
+      let mask = top.pointee.schema.fieldIndexMask
+      var probe = Int(truncatingIfNeeded: streamFieldHash(word: word, length: keyLength)) & mask
+      while true {
+        let slot = index[probe]
+        guard slot >= 0 else {
+          top.pointee.pendingField = -1
+          return
+        }
+        let entry = entries + Int(slot)
+        if entry.pointee.keyWord == word && entry.pointee.keyLength == keyLength {
+          guard length <= 8 else {
+            Self.matchTableKeyTail(top, key, indexedFrom: probe)
+            return
+          }
+          top.pointee.pendingField = slot
+          return
+        }
+        probe = (probe &+ 1) & mask
+      }
+    }
+    let count = top.pointee.schema.fieldCount
+    var position = 0
+    while position < count {
+      let entry = entries + position
+      if entry.pointee.keyWord == word && entry.pointee.keyLength == keyLength {
+        guard length <= 8 else {
+          Self.matchTableKeyTail(top, key, linearFrom: position)
+          return
+        }
+        top.pointee.pendingField = Int32(truncatingIfNeeded: position)
+        return
+      }
+      position &+= 1
+    }
+    top.pointee.pendingField = -1
+  }
+
+  // The rest of `matchTableKey` for a key longer than a word, from its first candidate: the tail
+  // compare is inline here, so the walk is a leaf too.
+  @inline(never)
+  private static func matchTableKeyTail(
+    _ top: UnsafeMutablePointer<BorrowedFrame>, _ key: Span<UInt8>, linearFrom start: Int
+  ) {
+    let word = key._streamPaddedLeadingWord()
+    let keyLength = UInt16(truncatingIfNeeded: key.count)
+    let entries = top.pointee.schema.fieldEntries.unsafelyUnwrapped
+    let keyBytes = top.pointee.schema.fieldKeyBytes.unsafelyUnwrapped
+    let count = top.pointee.schema.fieldCount
+    var position = start
+    while position < count {
+      let entry = entries + position
+      if entry.pointee.keyWord == word && entry.pointee.keyLength == keyLength
+        && Self.longKeyTailMatches(entry, keyBytes: keyBytes, key)
+      {
+        top.pointee.pendingField = Int32(truncatingIfNeeded: position)
+        return
+      }
+      position &+= 1
+    }
+    top.pointee.pendingField = -1
+  }
+
+  @inline(never)
+  private static func matchTableKeyTail(
+    _ top: UnsafeMutablePointer<BorrowedFrame>, _ key: Span<UInt8>, indexedFrom start: Int
+  ) {
+    let word = key._streamPaddedLeadingWord()
+    let keyLength = UInt16(truncatingIfNeeded: key.count)
+    let entries = top.pointee.schema.fieldEntries.unsafelyUnwrapped
+    let keyBytes = top.pointee.schema.fieldKeyBytes.unsafelyUnwrapped
+    let index = top.pointee.schema.fieldIndex.unsafelyUnwrapped
+    let mask = top.pointee.schema.fieldIndexMask
+    var probe = start
+    while true {
+      let slot = index[probe]
+      guard slot >= 0 else {
+        top.pointee.pendingField = -1
+        return
+      }
+      let entry = entries + Int(slot)
+      if entry.pointee.keyWord == word && entry.pointee.keyLength == keyLength
+        && Self.longKeyTailMatches(entry, keyBytes: keyBytes, key)
+      {
+        top.pointee.pendingField = slot
+        return
+      }
+      probe = (probe &+ 1) & mask
+    }
+  }
+
+  // `streamFieldTailMatches`'s compare, inline: the key is longer than a word and its first word
+  // already matched, so words from offset 8, then the last word ending at both keys' ends.
+  @inline(__always)
+  private static func longKeyTailMatches(
+    _ entry: UnsafePointer<StreamFieldEntry>, keyBytes: UnsafePointer<UInt8>, _ key: Span<UInt8>
+  ) -> Bool {
+    key.withUnsafeBufferPointer { buffer in
+      let stored = UnsafeRawPointer(keyBytes + Int(entry.pointee.keyStart))
+      let given = UnsafeRawPointer(buffer.baseAddress.unsafelyUnwrapped)
+      let last = buffer.count &- 8
+      var offset = 8
+      while offset < last {
+        if stored.loadUnaligned(fromByteOffset: offset, as: UInt64.self)
+          != given.loadUnaligned(fromByteOffset: offset, as: UInt64.self)
+        {
+          return false
+        }
+        offset &+= 8
+      }
+      return stored.loadUnaligned(fromByteOffset: last, as: UInt64.self)
+        == given.loadUnaligned(fromByteOffset: last, as: UInt64.self)
+    }
+  }
+
+  // `key`'s arms that call out, each outlined so `key` itself does not save the registers they
+  // need.
+  @inline(never)
+  private mutating func dictionaryKey(_ top: UnsafeMutablePointer<BorrowedFrame>, _ bytes: Span<UInt8>) {
+    switch self.activeLeafRoute {
+    case .dictionaryStreamString, .dictionaryOptionalStreamString,
+      .dictionaryBool, .dictionaryOptionalBool:
+      self.pendingDictionaryStorage = self.openKnownDictionaryValue(
+        top.pointee.storage, route: self.activeLeafRoute, forKey: bytes
+      )
+      return
+    default:
+      break
+    }
+    // The key span does not outlive this call, so the value's slot is opened now rather than
+    // remembered and opened when the value arrives.
+    // Read through the frame each time, not bound to a local: a local passed to `enterKey` kept the
+    // schema alive across the call, a retain per dictionary entry. In place it is a borrow.
+    self.pendingDictionaryStorage = top.pointee.withSchema { $0.enterKey(top.pointee.storage, bytes) }
+  }
+
+  @inline(never)
+  private mutating func closureKey(_ top: UnsafeMutablePointer<BorrowedFrame>, _ bytes: Span<UInt8>) {
+    switch top.pointee.schema.keyDispatch {
     case .match:
       top.pointee.pendingField = top.pointee.withSchema { $0.matchField(bytes) }
     case .observedTable:
@@ -510,22 +675,9 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       }
       // The hook is caller code running on the partial mid-call, and may copy a member.
       self.knownUniqueTail = Self.noKnownUniqueTail
-    case .dictionary:
-      switch self.activeLeafRoute {
-      case .dictionaryStreamString, .dictionaryOptionalStreamString,
-        .dictionaryBool, .dictionaryOptionalBool:
-        self.pendingDictionaryStorage = self.openKnownDictionaryValue(
-          top.pointee.storage, route: self.activeLeafRoute, forKey: bytes
-        )
-        return
-      default:
-        break
-      }
-      // The key span does not outlive this call, so the value's slot is opened now rather than
-      // remembered and opened when the value arrives.
-      self.pendingDictionaryStorage = top.pointee.withSchema { $0.enterKey(top.pointee.storage, bytes) }
-    case .ignore:
-      top.pointee.pendingField = -1
+    case .table, .dictionary, .ignore:
+      // `key` handles these before calling here.
+      return
     }
   }
 

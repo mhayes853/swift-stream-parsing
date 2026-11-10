@@ -250,6 +250,27 @@ struct StreamFieldTableTests {
       expectNoDifference(value.two, 2)
     }
 
+    // The sink's own scan, over a table past `indexThreshold`: it stops at the first entry whose
+    // first word and length match and hands a longer key's tail to a second probe, which must keep
+    // probing past a tail that differs. Keys of exactly a word, and one past it, sit either side
+    // of that hand-off.
+    @Test(arguments: [Int.max, 7, 1])
+    func `Indexed tables match long keys past a first-word collision`(chunk: Int) throws {
+      #expect(TableIndexedLongKeys.Partial.streamSchema.fieldIndex != nil)
+      var value = TableIndexedLongKeys.Partial()
+      try parsePartial(
+        #"{"a_very_long_key_name_two":2,"a_very_long_key_name_one":1,"a_very_long_key_nope":3,"#
+          + #""f3":4,"exactly8":5,"exactly8x":6,"exactly9":7,"f15":8}"#,
+        into: &value, chunk: chunk
+      )
+      expectNoDifference(value.one, 1)
+      expectNoDifference(value.two, 2)
+      expectNoDifference(value.f3, 4)
+      expectNoDifference(value.exactly8, 5)
+      expectNoDifference(value.exactly8x, 6)
+      expectNoDifference(value.f15, 8)
+    }
+
     // The tail compare reads words, the last one overlapping from the key's end, so every length
     // past a word and every byte of its tail is a separate case: a key differing only at byte `i`
     // must miss, and the span is allocated at exactly the key's length so nothing past it exists
@@ -294,6 +315,32 @@ private struct TableLongKeys: Equatable {
   var one: Int = 0
   @StreamParseableMember(keyNames: ["a_very_long_key_name_two"])
   var two: Int = 0
+}
+
+@StreamParseable
+private struct TableIndexedLongKeys: Equatable {
+  @StreamParseableMember(keyNames: ["a_very_long_key_name_one"])
+  var one: Int = 0
+  @StreamParseableMember(keyNames: ["a_very_long_key_name_two"])
+  var two: Int = 0
+  var exactly8: Int = 0
+  var exactly8x: Int = 0
+  var f0: Int = 0
+  var f1: Int = 0
+  var f2: Int = 0
+  var f3: Int = 0
+  var f4: Int = 0
+  var f5: Int = 0
+  var f6: Int = 0
+  var f7: Int = 0
+  var f8: Int = 0
+  var f9: Int = 0
+  var f10: Int = 0
+  var f11: Int = 0
+  var f12: Int = 0
+  var f13: Int = 0
+  var f14: Int = 0
+  var f15: Int = 0
 }
 
 extension Array where Element == UInt8 {
