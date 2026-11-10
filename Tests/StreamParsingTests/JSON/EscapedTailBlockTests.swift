@@ -1,6 +1,7 @@
 import Testing
 
 import StreamParsingCore
+import StreamParsingShims
 
 // On arm64 an escaped string value's tail is taken 64 bytes at a time by
 // `stream_parsing_unescape_blocks` (Unescape.c) wherever at least 140 bytes of the chunk lie ahead,
@@ -402,6 +403,82 @@ struct `Escaped tail block tests` {
       var broken = content
       broken[at] = 0xFE
       Self.expectAgreement(Self.document(broken), "prose broken at \(at)")
+    }
+  }
+
+  // Runs of three-byte `\u` escapes are decoded four at a time, past the block they start in and
+  // as far as the chunk and the buffer allow. A run must give way, at exactly the escape where it
+  // stops being one, to whatever comes next: a scalar of another length, a surrogate (paired or
+  // not), a digit that is not one, a simple or escaped-backslash escape, the closing quote, text.
+  // The run's values sit on both sides of every edge of the range it accepts.
+  static let runValues: [UInt32] = [
+    0x0800, 0x0FFF, 0x1000, 0x3042, 0x65E5, 0xABCD, 0xCFFF, 0xD000, 0xD7FF, 0xE000, 0xFFFF,
+  ]
+  static let runBreakers: [String] = [
+    #"߿"#, #"é"#, #"A"#, #"\u0000"#, #"😀"#, #"\uD800"#, #"\uDFFF"#,
+    #"\u30G2"#, #"\u3 42"#, #"\u304"#, #"\U3042"#, #"\n"#, #"\\u3042"#, #"\""#, "x", "\u{E9}",
+    "\"", #"\\uD83D\uDE00"#, #"\u0041\uDE00"#, #"\uDBFF\uDFFF"#,
+  ]
+
+  static func run(_ count: Int, _ rng: inout Generator) -> [UInt8] {
+    var out = [UInt8]()
+    for _ in 0..<count {
+      Self.appendUnicodeEscape(Self.runValues[rng.below(Self.runValues.count)], to: &out, &rng)
+    }
+    return out
+  }
+
+  @Test(arguments: [0, 1])
+  func `Runs of three-byte unicode escapes give way exactly where they stop`(kind: Int) {
+    var rng = Generator(state: 0x5EED_0005 &+ UInt64(kind))
+    for (which, breaker) in Self.runBreakers.enumerated() {
+      for before in [0, 1, 3, 4, 5, 7, 8, 11, 12, 23, 30] {
+        for lead in 0..<(before == 30 ? 64 : 7) {
+          let content =
+            Array(#"\t"#.utf8) + Self.filler(lead, kind: kind) + Self.run(before, &rng)
+            + Array(breaker.utf8) + Self.run(rng.below(30), &rng) + Self.filler(150, kind: kind)
+          Self.expectAgreement(
+            Self.document(content), "breaker \(which) after \(before) escapes, lead \(lead)",
+            everySplit: lead == 5 && before % 4 == 3
+          )
+        }
+      }
+    }
+  }
+
+  // The kernel keeps its own copy of the UTF-8 validator's three nibble tables, so that it does
+  // not take them as arguments; the Swift ones stay the source.
+  #if arch(arm64)
+    @Test
+    func `The kernel's UTF-8 tables are the validator's`() {
+      let tables = [streamUTF8PreviousHighTable, streamUTF8PreviousLowTable, streamUTF8CurrentHighTable]
+      for (index, table) in tables.enumerated() {
+        for nibble in 0..<16 {
+          #expect(
+            stream_parsing_unescape_utf8_table(Int32(index), Int32(nibble)) == table[nibble],
+            "table \(index), nibble \(nibble)"
+          )
+        }
+      }
+    }
+  #endif
+
+  // A run longer than the buffer and than any chunk: it ends where the chunk's slack or the
+  // buffer's room does, mid-run, and the next call picks it up.
+  @Test
+  func `Long runs of three-byte unicode escapes agree at every buffer and chunk size`() {
+    var rng = Generator(state: 0x5EED_0007)
+    for index in 0..<16 {
+      // The first few short enough to be cut at every offset.
+      let count = index < 4 ? 30 + rng.below(40) : 200 + rng.below(1200)
+      let content =
+        Array(#"\n"#.utf8) + [UInt8](repeating: UInt8(ascii: "r"), count: index * 5)
+        + Self.run(count, &rng) + Array(#"\n"#.utf8) + Self.run(rng.below(50), &rng)
+        + [UInt8](repeating: UInt8(ascii: "s"), count: 150)
+      Self.expectAgreement(
+        Self.document(content), "long run \(index)", everySplit: index < 4,
+        bufferCapacities: index < 4 ? [4096, 160] : [4096, 16, 139, 140, 141, 160, 200, 300]
+      )
     }
   }
 }

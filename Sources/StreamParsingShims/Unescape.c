@@ -57,24 +57,162 @@ stream_parsing_unescape_hex_quad(const uint8_t *digits) {
   return ((a - 1) << 12) | ((b - 1) << 8) | ((c - 1) << 4) | (d - 1);
 }
 
-// The scalar a `\uXXXX` escape at `escape` spells and, through `taken`, how many source bytes it
-// is: six, or twelve for a surrogate pair. Zero bytes for everything the per-escape path has a
-// diagnostic for -- a digit that is not one, a surrogate without its other half -- which is
-// therefore left exactly where it was. The caller keeps twelve bytes readable.
+// The scalar a `\uXXXX` escape at `escape` (block offset `p`, the block's escape starts `starts`)
+// spells and, through `taken`, how many source bytes it is. Zero bytes for everything the
+// per-escape path has a diagnostic for -- a digit that is not one, a surrogate without its other
+// half -- which is therefore left exactly where it was. The caller keeps twelve bytes readable,
+// and five in front of `escape` when `p` is at least six.
+//
+// A surrogate pair whose halves are both in the block is two escapes, six bytes each: the high
+// half checks the low one and decodes the pair, and the low half, recognised by the escape that
+// began six bytes back being a high surrogate (`second`), makes nothing. Every escape before it
+// in the block decoded, or the walk would have stopped, so that high half has already checked
+// this one's digits. Only a high half whose partner lies past the block takes twelve. Measured:
+// taking twelve at every pair made the walk clear the partner's bit from its mask with a `csel`
+// on `taken`, which put the whole decode -- two table lookups deep -- on the path to the next
+// escape's position; on `twitterescaped` that cost the walk 8% (161.7 against 149.5 us).
 static inline __attribute__((always_inline)) uint32_t
-stream_parsing_unescape_unicode(const uint8_t *escape, ptrdiff_t *taken) {
+stream_parsing_unescape_unicode(const uint8_t *escape, ptrdiff_t p, uint64_t starts,
+                                ptrdiff_t *taken, int *second) {
   *taken = 0;
+  *second = 0;
   if (escape[1] != 'u') return 0;
   uint32_t unit = stream_parsing_unescape_hex_quad(escape + 2);
   if (unit < 0xD800 || (unit >= 0xE000 && unit <= 0xFFFF)) {
     *taken = 6;
     return unit;
   }
-  if (unit > 0xDBFF || escape[6] != '\\' || escape[7] != 'u') return 0;
+  if (unit >= 0xDC00) {
+    // `D` then `8` to `B`: the escape six bytes back was a high surrogate.
+    if (unit <= 0xDFFF && p >= 6 && ((starts >> (p - 6)) & 1) && escape[-5] == 'u'
+        && stream_parsing_unescape_hex_digit[escape[-4]] == 0xD + 1
+        && (uint32_t)stream_parsing_unescape_hex_digit[escape[-3]] - (0x8 + 1) <= 3) {
+      *taken = 6;
+      *second = 1;
+    }
+    return 0;
+  }
+  if (escape[6] != '\\' || escape[7] != 'u') return 0;
   uint32_t low = stream_parsing_unescape_hex_quad(escape + 8);
   if (low < 0xDC00 || low > 0xDFFF) return 0;
-  *taken = 12;
+  *taken = p + 6 >= 64 ? 12 : 6;
   return 0x10000 + ((unit - 0xD800) << 10) + (low - 0xDC00);
+}
+
+// Four `\uXXXX` escapes in a row, each a three-byte scalar that is not a surrogate (U+0800 to
+// U+D7FF, U+E000 to U+FFFF), decoded together from the 24 bytes at `escape` (32 are read): their
+// 12 bytes of UTF-8 in the low lanes of `*utf8`, junk in the top four. 0 when the 24 bytes are
+// anything else, and then nothing is concluded -- the scalar decode takes the escape as before.
+//
+// Text in a script outside Latin serialised ASCII-only (Python's `json.dumps` default; all of
+// `twitterescaped`, 31,770 of whose 31,818 `\u` escapes are three-byte scalars, 85% of them in
+// runs of eight or more) is runs of exactly these. Three-byte scalars alone make the encoding a
+// fixed shuffle: escape i's digits n0..n3 sit at 6i + 2 .. 6i + 5 and its UTF-8 is
+//   0xE0 | n0,   0x80 | n1 << 2 | n2 >> 2,   0x80 | (n2 & 3) << 4 | n3,
+// so two `tbl` gathers (each byte's two digit sources) and two per-lane shifts make all twelve.
+// `two` (a constant at each call) asks the same of the first two escapes only, the first 12 bytes
+// and 6 of UTF-8: a run's remainder, which otherwise went one escape at a time through the scalar
+// decode (the kernel alone on `twitterescaped`: 69.0-70.7 -> 62.9-65.8 us).
+static inline __attribute__((always_inline)) int
+stream_parsing_unescape_four_bmp(const uint8_t *escape, uint8x16_t *utf8, const int two) {
+  const uint8x16_t a = vld1q_u8(escape);
+  const uint8x16_t b = vld1q_u8(escape + 16);
+  // What the 24 bytes must be where they are not digits -- `\` then `u`, every six -- and which
+  // lanes are digits. The eight lanes of `b` past the 24 bytes are neither, and pass.
+  const uint8x16_t expect_a = {'\\', 'u', 0, 0, 0, 0, '\\', 'u', 0, 0, 0, 0, '\\', 'u', 0, 0};
+  const uint8x16_t expect_b = {0, 0, '\\', 'u', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  const uint8x16_t digit_a = {0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0,
+                              0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0xFF, 0xFF};
+  const uint8x16_t digit_b = {0xFF, 0xFF, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0};
+  const uint8x16_t past_b = {0, 0, 0, 0, 0, 0, 0, 0,
+                             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+  // A digit's value: `0`-`9` by subtraction, `a`-`f` and `A`-`F` folded to lower case first.
+  const uint8x16_t decimal_a = vsubq_u8(a, vdupq_n_u8('0'));
+  const uint8x16_t decimal_b = vsubq_u8(b, vdupq_n_u8('0'));
+  const uint8x16_t letter_a = vsubq_u8(vorrq_u8(a, vdupq_n_u8(0x20)), vdupq_n_u8('a'));
+  const uint8x16_t letter_b = vsubq_u8(vorrq_u8(b, vdupq_n_u8(0x20)), vdupq_n_u8('a'));
+  const uint8x16_t is_decimal_a = vcltq_u8(decimal_a, vdupq_n_u8(10));
+  const uint8x16_t is_decimal_b = vcltq_u8(decimal_b, vdupq_n_u8(10));
+  const uint8x16_t is_digit_a = vorrq_u8(is_decimal_a, vcltq_u8(letter_a, vdupq_n_u8(6)));
+  const uint8x16_t is_digit_b = vorrq_u8(is_decimal_b, vcltq_u8(letter_b, vdupq_n_u8(6)));
+  const uint8x16_t shape_a = vbslq_u8(digit_a, is_digit_a, vceqq_u8(a, expect_a));
+  const uint8x16_t shape_b =
+      vorrq_u8(vbslq_u8(digit_b, is_digit_b, vceqq_u8(b, expect_b)), past_b);
+  const uint8x16x2_t nibbles = {{
+      vbslq_u8(is_decimal_a, decimal_a, vaddq_u8(letter_a, vdupq_n_u8(10))),
+      vbslq_u8(is_decimal_b, decimal_b, vaddq_u8(letter_b, vdupq_n_u8(10))),
+  }};
+  // Output byte 3i + r: `x` is n0, n1, n2 for r = 0, 1, 2 and `y` is nothing, n2, n3.
+  const uint8x16_t x_index = {2, 3, 4, 8, 9, 10, 14, 15, 16, 20, 21, 22, 0xFF, 0xFF, 0xFF, 0xFF};
+  const uint8x16_t y_index = {0xFF, 4, 5, 0xFF, 10, 11, 0xFF, 16, 17, 0xFF, 22, 23,
+                              0xFF, 0xFF, 0xFF, 0xFF};
+  const uint8x16_t x = vqtbl2q_u8(nibbles, x_index);
+  const uint8x16_t y = vqtbl2q_u8(nibbles, y_index);
+  const uint8x16_t x_mask = {0x0F, 0x0F, 0x03, 0x0F, 0x0F, 0x03, 0x0F, 0x0F, 0x03,
+                             0x0F, 0x0F, 0x03, 0, 0, 0, 0};
+  const int8x16_t x_shift = {0, 2, 4, 0, 2, 4, 0, 2, 4, 0, 2, 4, 0, 0, 0, 0};
+  const int8x16_t y_shift = {0, -2, 0, 0, -2, 0, 0, -2, 0, 0, -2, 0, 0, 0, 0, 0};
+  const uint8x16_t marks = {0xE0, 0x80, 0x80, 0xE0, 0x80, 0x80, 0xE0, 0x80, 0x80,
+                            0xE0, 0x80, 0x80, 0, 0, 0, 0};
+  *utf8 = vorrq_u8(vorrq_u8(marks, vshlq_u8(vandq_u8(x, x_mask), x_shift)), vshlq_u8(y, y_shift));
+  // Three bytes and not a surrogate, on lane 3i where `x` is n0 and the lane after it n1: at
+  // least U+0800 (n0 != 0 or n1 >= 8), and not D800-DFFF (n0 == 0xD and n1 >= 8).
+  const uint8x16_t n1_high = vcgeq_u8(vextq_u8(x, x, 1), vdupq_n_u8(8));
+  const uint8x16_t wide = vorrq_u8(vtstq_u8(x, x), n1_high);
+  const uint8x16_t surrogate = vandq_u8(vceqq_u8(x, vdupq_n_u8(0xD)), n1_high);
+  const uint8x16_t lead4 = {0xFF, 0, 0, 0xFF, 0, 0, 0xFF, 0, 0, 0xFF, 0, 0, 0, 0, 0, 0};
+  const uint8x16_t lead2 = {0xFF, 0, 0, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  const uint8x16_t lead = two ? lead2 : lead4;
+  const uint8x16_t range = vornq_u8(vbicq_u8(wide, surrogate), lead);
+  if (two) {
+    // Only the first 12 bytes of `a` are looked at, and nothing of `b`.
+    const uint8x16_t past_a = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF};
+    return vminvq_u8(vandq_u8(vorrq_u8(shape_a, past_a), range)) == 0xFF;
+  }
+  return vminvq_u8(vandq_u8(vandq_u8(shape_a, shape_b), range)) == 0xFF;
+}
+
+// Whether a `\u` escape's first digit is one a run of three-byte scalars mostly begins with:
+// anything but `0` and `d`/`D`. A filter only; the run's own check is the exact one.
+static inline __attribute__((always_inline)) int
+stream_parsing_unescape_run_lead(uint8_t digit) {
+  return digit != '0' && (digit | 0x20) != 'd';
+}
+
+// `stream_parsing_unescape_four_bmp` from the escape at `s + q`, written from `e`, for as long as
+// it holds and the run starts at or before `reach`, then two more if they are there; returns where
+// the run stopped.
+//
+// Out of line, entered once per run. Two inline forms measured worse end to end: with literal
+// constants LLVM kept all fourteen in vector registers across the block loop, eight of them
+// callee-saved and saved on every kernel entry; with the constants behind a pointer made opaque
+// by an empty `asm`, the block loop was spill-free and the kernel alone as fast, yet raw
+// `Twitter escaped` gained +6.2% over the per-escape walk where this form gains +20.8%.
+//
+// The first test turns away an escape whose digits, or the next one's, begin with `0` or `d`
+// (below U+1000, or U+D000 up and the surrogates): text whose escapes are mixed -- two-byte
+// scalars, surrogate pairs, `Fast Unicode escaped string` -- otherwise paid for the shape check
+// at every escape and decoded none of them (the kernel alone on that document: 4.9 us before
+// any of this, 13.6 with the check unguarded, 8.8 with this test; what is left is the call and
+// the pair taken as two escapes). It is here and not at the call: in the walk, the
+// two more loads and compares cost `LLM message` 3% end to end, through a register the block
+// loop then spilled.
+static __attribute__((noinline)) ptrdiff_t
+stream_parsing_unescape_bmp_run(const uint8_t *s, ptrdiff_t q, uint8_t *e, ptrdiff_t reach) {
+  uint8x16_t utf8;
+  if (!stream_parsing_unescape_run_lead(s[q + 2]) || !stream_parsing_unescape_run_lead(s[q + 8])) {
+    return q;
+  }
+  while (q <= reach && stream_parsing_unescape_four_bmp(s + q, &utf8, 0)) {
+    vst1q_u8(e, utf8);
+    e += 12;
+    q += 24;
+  }
+  if (q <= reach && stream_parsing_unescape_four_bmp(s + q, &utf8, 1)) {
+    vst1q_u8(e, utf8);
+    q += 12;
+  }
+  return q;
 }
 
 // A scalar's UTF-8 encoding little-endian in a word, and its length (`JSONParser.utf8Word`).
@@ -140,11 +278,79 @@ stream_parsing_unescape_starts(uint64_t backslash, uint64_t *next_is_escaped, ui
   return starts;
 }
 
+// The UTF-8 validator's three nibble tables (`streamUTF8PreviousHighTable`,
+// `streamUTF8PreviousLowTable`, `streamUTF8CurrentHighTable` in StreamScanners.swift), byte for
+// byte; `EscapedTailBlockTests` holds them to the Swift ones through
+// `stream_parsing_unescape_utf8_table`. Here rather than passed in: the Swift tables are
+// computed getters that out-of-module sink specialisations call rather than inline, three `bl`s
+// and three vector spills on every kernel entry, where these are three loads.
+#define STREAM_UTF8_TOO_SHORT (1 << 0)
+#define STREAM_UTF8_TOO_LONG (1 << 1)
+#define STREAM_UTF8_OVERLONG_3 (1 << 2)
+#define STREAM_UTF8_TOO_LARGE (1 << 3)
+#define STREAM_UTF8_SURROGATE (1 << 4)
+#define STREAM_UTF8_OVERLONG_2 (1 << 5)
+#define STREAM_UTF8_TOO_LARGE_1000 (1 << 6)
+#define STREAM_UTF8_OVERLONG_4 (1 << 6)
+#define STREAM_UTF8_TWO_CONTINUATIONS (1 << 7)
+#define STREAM_UTF8_CARRY \
+  (STREAM_UTF8_TOO_SHORT | STREAM_UTF8_TOO_LONG | STREAM_UTF8_TWO_CONTINUATIONS)
+#define STREAM_UTF8_HIGH_LOW (STREAM_UTF8_CARRY | STREAM_UTF8_TOO_LARGE | STREAM_UTF8_TOO_LARGE_1000)
+
+static const uint8_t stream_parsing_unescape_utf8_tables[3][16] = {
+  // Indexed by the high nibble of the previous byte.
+  {
+    STREAM_UTF8_TOO_LONG, STREAM_UTF8_TOO_LONG, STREAM_UTF8_TOO_LONG, STREAM_UTF8_TOO_LONG,
+    STREAM_UTF8_TOO_LONG, STREAM_UTF8_TOO_LONG, STREAM_UTF8_TOO_LONG, STREAM_UTF8_TOO_LONG,
+    STREAM_UTF8_TWO_CONTINUATIONS, STREAM_UTF8_TWO_CONTINUATIONS,
+    STREAM_UTF8_TWO_CONTINUATIONS, STREAM_UTF8_TWO_CONTINUATIONS,
+    STREAM_UTF8_TOO_SHORT | STREAM_UTF8_OVERLONG_2,
+    STREAM_UTF8_TOO_SHORT,
+    STREAM_UTF8_TOO_SHORT | STREAM_UTF8_OVERLONG_3 | STREAM_UTF8_SURROGATE,
+    STREAM_UTF8_TOO_SHORT | STREAM_UTF8_TOO_LARGE | STREAM_UTF8_TOO_LARGE_1000
+      | STREAM_UTF8_OVERLONG_4,
+  },
+  // Indexed by the low nibble of the previous byte.
+  {
+    STREAM_UTF8_CARRY | STREAM_UTF8_OVERLONG_3 | STREAM_UTF8_OVERLONG_2 | STREAM_UTF8_OVERLONG_4,
+    STREAM_UTF8_CARRY | STREAM_UTF8_OVERLONG_2,
+    STREAM_UTF8_CARRY,
+    STREAM_UTF8_CARRY,
+    STREAM_UTF8_CARRY | STREAM_UTF8_TOO_LARGE,
+    STREAM_UTF8_HIGH_LOW, STREAM_UTF8_HIGH_LOW, STREAM_UTF8_HIGH_LOW, STREAM_UTF8_HIGH_LOW,
+    STREAM_UTF8_HIGH_LOW, STREAM_UTF8_HIGH_LOW, STREAM_UTF8_HIGH_LOW, STREAM_UTF8_HIGH_LOW,
+    STREAM_UTF8_HIGH_LOW | STREAM_UTF8_SURROGATE,
+    STREAM_UTF8_HIGH_LOW, STREAM_UTF8_HIGH_LOW,
+  },
+  // Indexed by the high nibble of the current byte.
+  {
+    STREAM_UTF8_TOO_SHORT, STREAM_UTF8_TOO_SHORT, STREAM_UTF8_TOO_SHORT, STREAM_UTF8_TOO_SHORT,
+    STREAM_UTF8_TOO_SHORT, STREAM_UTF8_TOO_SHORT, STREAM_UTF8_TOO_SHORT, STREAM_UTF8_TOO_SHORT,
+    STREAM_UTF8_TOO_LONG | STREAM_UTF8_OVERLONG_2 | STREAM_UTF8_TWO_CONTINUATIONS
+      | STREAM_UTF8_OVERLONG_3 | STREAM_UTF8_TOO_LARGE_1000 | STREAM_UTF8_OVERLONG_4,
+    STREAM_UTF8_TOO_LONG | STREAM_UTF8_OVERLONG_2 | STREAM_UTF8_TWO_CONTINUATIONS
+      | STREAM_UTF8_OVERLONG_3 | STREAM_UTF8_TOO_LARGE,
+    STREAM_UTF8_TOO_LONG | STREAM_UTF8_OVERLONG_2 | STREAM_UTF8_TWO_CONTINUATIONS
+      | STREAM_UTF8_SURROGATE | STREAM_UTF8_TOO_LARGE,
+    STREAM_UTF8_TOO_LONG | STREAM_UTF8_OVERLONG_2 | STREAM_UTF8_TWO_CONTINUATIONS
+      | STREAM_UTF8_SURROGATE | STREAM_UTF8_TOO_LARGE,
+    STREAM_UTF8_TOO_SHORT, STREAM_UTF8_TOO_SHORT, STREAM_UTF8_TOO_SHORT, STREAM_UTF8_TOO_SHORT,
+  },
+};
+
+uint8_t stream_parsing_unescape_utf8_table(int table, int nibble) {
+  return (unsigned)table < 3 ? stream_parsing_unescape_utf8_tables[table][nibble & 15] : 0;
+}
+
 __attribute__((noinline, aligned(64)))
 stream_parsing_unescape_result stream_parsing_unescape_blocks(
-    const uint8_t *src, ptrdiff_t n, uint8_t *dst, ptrdiff_t room,
-    stream_parsing_u8x16 utf8_previous_high, stream_parsing_u8x16 utf8_previous_low,
-    stream_parsing_u8x16 utf8_current_high) {
+    const uint8_t *src, ptrdiff_t n, uint8_t *dst, ptrdiff_t room) {
+  const stream_parsing_u8x16 utf8_previous_high =
+      (stream_parsing_u8x16)vld1q_u8(stream_parsing_unescape_utf8_tables[0]);
+  const stream_parsing_u8x16 utf8_previous_low =
+      (stream_parsing_u8x16)vld1q_u8(stream_parsing_unescape_utf8_tables[1]);
+  const stream_parsing_u8x16 utf8_current_high =
+      (stream_parsing_u8x16)vld1q_u8(stream_parsing_unescape_utf8_tables[2]);
   const uint8x16_t backslash = vdupq_n_u8('\\');
   const uint8x16_t space = vdupq_n_u8(0x20);
   const uint8x16_t flip = vdupq_n_u8(0x02);
@@ -313,24 +519,51 @@ stream_parsing_unescape_result stream_parsing_unescape_blocks(
           k += 1;
           continue;
         }
+        // Marked unlikely for the register allocator rather than the branch predictor: the call
+        // clobbers the vector registers the block loop keeps its constants in, and at the walk's
+        // usual frequency LLVM saved them on every entry to the walk (LLM's and GSoC's third
+        // escapes and closing quotes) instead of around the call.
+        if (__builtin_expect(s[p + 6] == '\\' && s[p + 18] == '\\', 0)) {
+          // Possibly a run of three-byte scalars: four at a time for as long as it lasts, past
+          // this block if need be, but only as far as the run's reads and the recopy after it
+          // stay inside the source and its writes inside the target (the output never runs
+          // ahead of the input, so the source's bound serves both). Measured on
+          // `twitterescaped`, the kernel alone: 161.7 -> 70.2 us; bounded to the block's own
+          // slack (a run starting at or before byte 52) it was 85.2.
+          ptrdiff_t reach = (n - in < room - out ? n - in : room - out) - 88;
+          ptrdiff_t q = stream_parsing_unescape_bmp_run(s, p, e, reach);
+          if (q != p) {
+            e += (q - p) >> 1;
+            k += (q - p) >> 1;
+            stream_parsing_unescape_recopy(e, s + q);
+            pending = q >= 64 ? 0 : pending & (~0ULL << q);
+            if (q > 64) {
+              advance = q;
+              carry = 0;
+              break;
+            }
+            continue;
+          }
+        }
         ptrdiff_t taken;
-        uint32_t scalar = stream_parsing_unescape_unicode(s + p, &taken);
+        int second;
+        uint32_t scalar = stream_parsing_unescape_unicode(s + p, p, starts, &taken, &second);
         if (taken == 0) {
           stop_at = p;
           break;
         }
-        // One to four bytes in one store; the recopy begins where they end.
+        // One to four bytes in one store (none for a pair's second half); the recopy begins
+        // where they end.
         ptrdiff_t made;
         uint32_t word = stream_parsing_unescape_utf8(scalar, &made);
+        made = second ? 0 : made;
         __builtin_memcpy(e, &word, 4);
         stream_parsing_unescape_recopy(e + made, s + p + taken);
         k += taken - made;
-        // A pair's second backslash is the next escape start, when it is in this block at all.
-        if (taken == 12) pending &= pending - 1;
         if (p + taken > 64) {
           // The escape runs past the block (no stop can lie inside one), so nothing of the block
           // is left and the next begins behind the escape rather than at the next 64. This is
-          // the one place the input cursor follows the data.
+          // the one place the input cursor follows the data, with the run above.
           advance = p + taken;
           carry = 0;
           break;

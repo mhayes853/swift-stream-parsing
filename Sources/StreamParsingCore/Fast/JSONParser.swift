@@ -1177,8 +1177,7 @@ public struct JSONParser: ~Copyable {
         }
         let result = stream_parsing_unescape_blocks(
           base.advanced(by: i).assumingMemoryBound(to: UInt8.self), to &- i,
-          self.bufferBase + at, capacity &- at,
-          streamUTF8PreviousHighTable, streamUTF8PreviousLowTable, streamUTF8CurrentHighTable
+          self.bufferBase + at, capacity &- at
         )
         self.bufferCount = UInt32(truncatingIfNeeded: at &+ (result.produced_and_reason &>> 2))
         i &+= result.consumed

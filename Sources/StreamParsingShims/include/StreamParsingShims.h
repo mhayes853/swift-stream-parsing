@@ -679,13 +679,17 @@ typedef struct {
 } stream_parsing_unescape_result;
 
 // Copies string content from `source` to `target` in whole 64-byte blocks, decoding escapes
-// (`\uXXXX` and surrogate pairs included) and validating UTF-8 (with `stream_parsing_utf8_block_errors` and the caller's three
-// tables). Nothing past `count` is read and nothing past `room` written; bytes past `produced` in
-// the target are junk. Everything up to `consumed` is valid UTF-8 ending on a sequence boundary.
+// (`\uXXXX` and surrogate pairs included) and validating UTF-8 (with
+// `stream_parsing_utf8_block_errors` and the kernel's own copy of the three tables). Nothing past
+// `count` is read and nothing past `room` written; bytes past `produced` in the target are junk.
+// Everything up to `consumed` is valid UTF-8 ending on a sequence boundary.
 stream_parsing_unescape_result stream_parsing_unescape_blocks(
-    const uint8_t *source, ptrdiff_t count, uint8_t *target, ptrdiff_t room,
-    stream_parsing_u8x16 utf8_previous_high, stream_parsing_u8x16 utf8_previous_low,
-    stream_parsing_u8x16 utf8_current_high);
+    const uint8_t *source, ptrdiff_t count, uint8_t *target, ptrdiff_t room);
+
+// Byte `nibble` of the kernel's copy of UTF-8 table `table` (0: previous byte's high nibble,
+// 1: its low nibble, 2: the current byte's high nibble), for the test that holds it to the
+// Swift tables.
+uint8_t stream_parsing_unescape_utf8_table(int table, int nibble);
 #endif
 
 // MARK: - x86: the AVX2 tier
