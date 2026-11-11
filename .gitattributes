@@ -1,0 +1,8 @@
+# Force LF line endings for all text files, regardless of platform checkout settings.
+#
+# Without this, Windows runners (Git for Windows defaults to core.autocrlf=true) rewrite LF to
+# CRLF on checkout. Swift's `String.split(separator: "\n")` treats "\r\n" as a single grapheme
+# cluster, not two characters, so a CRLF-converted file collapses into one "line" when diffed by
+# swift-snapshot-testing's line-based `.json` strategy — turning a byte-identical snapshot into a
+# spurious full-file mismatch on Windows only.
+* text=auto eol=lf

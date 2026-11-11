@@ -1,437 +1,225 @@
 # Swift Stream Parsing
-You are currently working with Swift code within a Swift package. Below are common anti-patterns that agents tend to follow, and what you should do instead. Make sure to generate code in correspondence with examples listed as GOOD or OK, and avoid generating code listed as a BAD example.
+You are working on Swift Stream Parsing, a blazingly fast and convenient library for parsing JSON (or any format in the future) incrementally by streaming observable values from incomplete payloads. This library exist because certain problems require structured observable parsing (eg. structured output streaming from LLMs) when full JSON payloads are pending or are otherwise incomplete. 
 
-## Basics
-### Always Use Type Names For Calling Initializers
-```swift
-struct Foo {}
+`Decodable` and `JSONDecoder` do not work in these scenarios because they require the full output to be present, which may be expensive or impossible. 
 
-// GOOD
-let foo = Foo()
+Traditional SAX parsers also fail here, because they generally only emit completed values where as we want to emit updates down to the byte level. Furthermore, such parsers often lack a typed convenience layer. Though this library can also be used like traditional SAX parser in (mostly) pure Swift if desired.
 
-// BAD
-let foo: Foo = .init()
+## Basic Rules
+
+We MUST run performance benchmarks (especially throughput) on the real world data sets after every change. Even subtle changes to a tiny number of lines of code can have a negative impact depending on how the Swift compiler handles optimizing, inlining, layout, etc. Furthermore, microbenchmarks on a single function do not guarantee E2E performance gains (and may even be losses!).
+
+Right now, we're primarily focused on ARM for optimizations, but the parser also works on x86 and other architectures that support Swift (just a bit slower).
+
+Some operations are better expressed in C than in Swift due to either incompatabilities (eg. Unrepresentable SIMD instructions) or data layout issues (eg. Pow 10 table for Eisel-Lemire fast float). `StreamParsingShims` is the target for that.
+
+Perform rigourous analysis on the underlying assembly whenever you make a change to a critical parsing component, and surface those in your communications. (Also note that lower instruction count != faster code.)
+
+Feel free to use whatever advanced features (including underscored attributes) in Swift that you need to achieve maximum performance.
+
+Liberal comments are fine here, especially if readability must be sacrified in exchange for performance.
+
+We have dedicated data types for streaming collections which includes dictionaries, arrays, and strings. These types prioritize speed whilst trying to keep a semblance of convenience.
+
+The convenience layer is zero-copy by default as one can produce snapshots of the parsed data on-demand (down to the individual field level). However, various convenience APIs (such as the async sequences) will generally take a full snapshot of the value. This is because each parseable type is required to have a `~Copyable` and `~Escapable` view associated type, which generally is a container for a typed unsafe pointer to the value.
+
+We rely on SIMD heavily to scan and process multiple bytes at a time using various known algorithms. In some cases where we don't have enough data to fill a full SIMD register, SWAR can be faster. Make sure to always benchmark SIMD vs SWAR if you consider using either approach.
+
+## The algorithm explorer
+
+`Web/` holds the algorithm explorer: a flow chart of the parse path where every node links to the
+evidence behind it. It is a *view* over the material that already exists — it never becomes a
+second place to keep prose.
+
+**Every change that adds or revises evidence must update the explorer in the same commit.** That
+means a new experiment (landed *or* rejected), a revised measurement table, a renamed or deleted
+kernel, or a new explanation in a source comment.
+
+How the content is sourced, and therefore what you have to touch:
+
+- **Prose and measurements stay in `PROGRESSION.md` and in source comments.** These are the
+  source of truth. An entry in `PROGRESSION.md` is brief: what changed, the verdict, the headline
+  numbers and the measurement tables. Leave out the derivation and the investigation narrative. `Sources/StreamParsingSiteTool` extracts them into `Web/generated/content.json`
+  by heading slug and by declaration name. Adding a section to the doc needs no explorer change
+  beyond pointing at it.
+- **`Web/content/pipeline.json` is the hand-authored file for the parse path.** It holds the
+  node graph (including `next`, which is what the flow chart draws), the short prose per node, and
+  the *references* — doc slugs, `File.swift:symbol` pairs, assembly symbols. A new experiment
+  attaches to the node it belongs to by adding its slug to that node's evidence list.
+- **The Tests and Macros views have one hand-authored file each, on the same terms.**
+  `Web/content/tests.json` selects the guarantees the suites carry and cites tests, suites and
+  helpers as `File.swift:name` (the name without its backticks); what each test does is read out of
+  its own leading comment and body, which `TestExtractor` lifts from `Tests/` and the smoke
+  packages into `Web/generated/library.json`. `Web/content/macros.json` holds why the macro support
+  library exists (citing `readme:` and `macro-support:` guide sections and declarations), a chart
+  in the same shape as a node's `steps` — validated by the same `validateSteps` — and the region
+  legend for expansions. The expansions themselves are the `assertStreamParsingMacro` snapshots in
+  the macro tests, so a changed expansion changes the site in the commit that changes the snapshot;
+  which lines belong to which region is decided by `Web/src/lib/macros.ts`, whose tests hold every
+  region it emits to the legend. A renamed test, retitled guide section or deleted generator
+  function fails `./Web/generate content` exactly as a dangling pipeline reference does. A new test
+  worth a reader's attention is added to a guarantee's `tests`; a new macro feature worth showing
+  is a new snapshot test plus an entry in `examples`.
+- **The landing page's explanation is in the same file, under `overview`.** The chart says what
+  the steps are and each node says why that step exists, but neither answers what a reader arrives
+  asking: what shape is this parser, and why that shape. `how` summarises the walk; `why` is one
+  card per principle, and each carries the node it is visible at and the log sections that settled
+  it, validated exactly as a node's evidence is. A principle citing neither is a claim nothing
+  checks, so the extractor warns — and a *measurement* belongs in the log being cited, not here.
+- **Every arrow says what it is.** An edge in `next` is
+  `{ to, kind, label, when }`. `label` is drawn on the arrow and is **required** — the extractor
+  fails on an empty one, because an unlabelled arrow between two functions asserts only that one
+  reaches the other, which is the least interesting thing about it. `kind` is `step` (runs
+  unconditionally), `branch` (taken only when `when` holds), `return` (hands control back), or
+  `detail` (zooms into the same work); the chart draws each differently. A node that fans out also
+  carries `invokes` — one sentence on the mechanism, the `switch` or the loop — and `ordering`:
+  `ordered` when `next` is written in the order the source runs or tests them, in which case the
+  arrows are numbered, or `unordered` when there is no order to claim. Reordering `next` therefore
+  changes what the chart asserts; keep it matching the source.
+- **Keep the prose descriptive.** This is a tool for reading the parser, not a pitch for it. State
+  what a step does and what was measured; drop the adjectives.
+- **Rejected experiments matter as much as landed ones.** They are the reason a decision does not
+  get re-litigated, and the explorer surfaces them in a dedicated graveyard view. Record the
+  verdict in the section title (`Landed: …` / `Rejected: …`) so the extractor can classify it.
+
+After changing the doc, a kernel, or `pipeline.json`:
+
+```sh
+./Web/generate            # re-extracts content.json, traces.json, and the assembly snapshots
 ```
 
-### Avoid Explicit Collection Types For Empty Collections
-``` swift
-// GOOD
-let arr = [UInt8]()
-let dict = [String: Int]()
+Generated artifacts under `Web/generated/` are committed, so the site builds without a Swift
+toolchain and evidence changes show up in diffs. The extractor **fails on a dangling reference** —
+a doc slug that no longer resolves, or a symbol that was renamed or deleted — so renaming a kernel
+without updating `pipeline.json` breaks the build rather than silently rotting the site.
 
-// BAD
-let arr: [UInt8] = []
-let dict: [String: Int] = [:]
-```
+**Every section in `PROGRESSION.md` opens with the day it was recorded**, as a
+`*Recorded YYYY-MM-DD.*` line under the heading, so the log reads chronologically without the
+site. Write one under every new heading, with the day you write the section. The existing lines
+were recovered from git, not remembered: each is the first revision of the doc whose heading walk
+contained that section, which is also why the relocated source-comment notes carry the day they
+were relocated rather than the day they were measured. The site does not read those lines. In the
+explorer every section carries the date and time it was recorded and the date it was last
+rewritten, and `HistoryExtractor` gets them by walking every revision of `PROGRESSION.md`
+(including those from before it was renamed from `NEW_ARCHITECTURE.md`) and re-running the same
+heading walk the rest of the extractor uses, so the written day and the site's date have the same
+source and should not disagree. A retitled heading is a new path and dates from the retitle, which is why the site says "recorded"
+rather than "measured"; a revision that only moved a section down the file changes no body and does
+not count as one. The times are rendered in the offset they were written at rather than the
+reader's, because a log records when somebody was working.
 
-### Prefer Using `self` When Accessing Member Variables And Methods
-```swift
-struct Item {
-  let property: String
-}
+Code blocks are highlighted by `Web/src/lib/highlight.ts` — hand-written for Swift, the
+shim's C and disassembly, for the same reason the markdown renderer is hand-written. A fence with no
+language draws plain rather than being guessed at; several unlabelled ones in the doc are compiler
+errors and throughput tables. Syntax colour carries nothing the text does not, so the bar it is held
+to is 4.5:1 text contrast in both themes rather than the pairwise separation the chart lanes need.
 
-// GOOD
-extension Item {
-  var propertyCount: Int {
-    self.property.count
-  }
-}
+**Logic lives in `Web/src/lib/`, drawing in `components/` and `viz/`.** Everything that decides
+something — the markdown grammar, the search, both charts' layouts, the tokenizers, how evidence
+is sorted and counted, the movemask arithmetic an animation re-derives — is a plain function in
+`lib/` with no React in it, and is unit tested there. Components render what those functions
+return. `cd Web && npm test` runs the unit tests and the React Testing Library tests; both run
+against the committed bundles in `Web/generated/` rather than hand-written samples where they can,
+so a bundle change that breaks a view fails the tests rather than a browser. CI runs them with the
+build.
 
-// BAD
-extension Item {
-  var propertyCount: Int {
-    property.count
-  }
-}
-```
+Traces are recorded by running the *shipped* kernels (`Sources/StreamParsingSiteTool/Trace`), not by
+reimplementing them, so the animations cannot drift from the parser. A kernel whose signature
+changes needs its recorder updated alongside it.
 
-### Prefer Using `Self` When Accessing static Variables And Methods
-```swift
-struct Item {
-  static let property = "..."
-}
+Where a kernel's intermediates are not observable from outside it, the recorder mirrors the body
+using the same `package` primitives and asserts its answer against the real function's; `verified`
+carries that into the bundle, and `./Web/generate traces` fails if any mirror disagrees. **A lookup
+table is recovered, never copied.** The number-class and UTF-8 tables are already `package` symbols
+and are read directly; the whitespace table is a literal inside `streamWhitespaceMissMask`, so the
+recorder probes the shipped predicate over all 256 bytes and reconstructs it — a table edited in the
+parser then shows up in the explorer with nobody having to remember it.
 
-// GOOD
-extension Item {
-  static var propertyCount: Int {
-    Self.property.count
-  }
-}
+The whitespace table is recovered this way because it is a literal inside
+`streamWhitespaceMissMask`; the escape map is recovered by probing `streamDecodeSimpleEscape` at
+all 128 indices, so the eight non-zero cells the site draws are the table rather than a claim about
+it.
 
-// BAD
-extension Item {
-  static var propertyCount: Int {
-    property.count
-  }
-}
+Past the vector kernels the subject changes, and so does the technique. `sink-protocol` onwards is
+not a kernel with intermediates to mirror but a protocol boundary, a frame stack and storage that
+grows — all of which are *stored state on shipped types*. Those recorders therefore
+`@testable import StreamParsingCore` and read the real fields: `PartialSink.frames` after every
+call the parser makes, `StreamString.blocks` after every append, the `StreamFieldTable` a real
+`StreamSchema` built. That is stronger than a mirror, not weaker, and it costs the parser nothing:
+`@testable` needs only the `-enable-testing` that SwiftPM already passes in debug, which is what
+`./Web/generate` builds, and no library source changes to allow it.
 
-extension Item {
-  static var propertyCount: Int {
-    self.property.count
-  }
-}
-```
+The same rule about copied constants applies and is easier to keep here: the inline capacity, the
+block schedule, `StreamFieldTable.indexThreshold`, `StreamDictionary.indexThreshold` and the field
+offsets are all read off the shipped types, so editing one in the parser moves the animation with
+it. Where a walk *is* mirrored — `consumeSkipRun`, whose cursor is not observable — it calls the
+same `package` scanners the shipped loop calls and is then checked against `consumeSkipRun` itself
+run over the same bytes from the same state.
 
-### Avoid Delayed Nested Local Property Initializations
-Avoid nesting initial assignments inside nested blocks such as in conditional and switch statements.
-```swift
-// GOOD
-func foo() {
-  let property = bar()
-  // ...
-}
+These traces carry their own verification into the bundle on the same footing as a kernel mirror,
+and `./Web/generate traces` fails without it: every span the parser handed over covers the bytes
+its call reports; the skipping run is a subsequence of the streaming one and its container opens
+and closes still balance; the mirrored skip walk and `consumeSkipRun` end on the same cursor; every
+key match agrees with `streamMatchField` / `streamMatchFieldIndexed`; the frame recording's parse
+produced the value the document described; and each container handed back what it was given.
 
-func bar() -> Value {
-  if someCondition {
-    currentValue
-  } else {
-    previousValue
-  }
-}
+Vector kernels are drawn as registers, not as coloured text: one `VectorRow` per 128-bit value,
+lanes aligned in columns so a value only moves down, and the operation between rows named for the
+instruction it is (`cmeq`, `tbl`, `orr`, `eor`). If a step in a kernel is a real instruction, it
+should be a row.
 
-// BAD
-func foo() {
-  let property: Value
-  if someCondition {
-    property = currentValue
-  } else {
-    property = previousValue
-  }
+**A visual steps through the kernel one instruction at a time, and every step says what changed.**
+A stack drawn all at once shows the answer but not the work, so a row carries a `phase`: `future`
+keeps its box and draws nothing (the stack must not reflow as the animation runs), `now` deals its
+lanes in left to right, `past` is already computed. Where a register is *updated* rather than
+produced — `scanned |= block`, the SWAR word under the mask and the bias — pass `changed` and the
+altered lanes pulse instead; a row whose contents change between steps also needs `epoch`, or React
+reuses the nodes and the change happens invisibly. Each step names itself in a `StepNote` under the
+controls, because "what changed" has to be readable and not only visible.
 
-  // ...
-}
-```
+**Every step also marks what it is touching in the input.** `InputTape` draws the sample's bytes
+once and takes `TapeMark`s over it: `done` behind the cursor, `window` for the bytes in the
+register, `cursor` for the byte the step resolves to, `next` for where the parser resumes. A rule
+every sixteen bytes makes the vector boundary visible without counting. This is the reason the
+container trace records `offset`/`length` per token — those come from the spans the parser hands
+the sink, cross-checked against a cursor that skips whitespace with the shipped `streamWhitespaceEnd`
+and steps over one separator. `offsetsVerified` carries that agreement into the bundle and
+`./Web/generate traces` fails without it, on the same footing as a drifted kernel mirror.
 
-### Prefer No Return Keyword For One Line Conditional Expressions
-```swift
-// GOOD
-func value() -> Value {
-  switch statement {
-  case 1: 1
-  case 4: 16
-  default: 64
-  }
-}
+A call log, a frame stack and a block schedule are not registers, so they are not drawn as ones —
+but they take the same three phases, for the same reason: a list drawn all at once shows the answer
+and not the work. `phaseOf` gives a row `past`, `now` or `future`, and a `future` row keeps its box
+and shows nothing so nothing reflows mid-animation. Two places extend that rather than repeat it. A
+call the skipping sink never received stays in place, struck through at low opacity, because "it
+did not happen" is the thing being shown and removing the row would only misalign the columns. And
+blocked storage is drawn *to scale*: a doubling schedule drawn with equal boxes is a schedule you
+cannot see, so the bars are sized against the largest allocation on screen.
 
-func value() -> Value {
-  if statement == 1 {
-    1
-  } else if statement == 4 {
-    16
-  } else {
-    64
-  }
-}
+Motion degrades under `prefers-reduced-motion` to an instant state change rather than being removed:
+the phases still differ, they simply stop animating between them.
 
-// BAD
-func value() -> Value {
-  switch statement {
-  case 1: return 1
-  case 4: return 16
-  default: return 64
-  }
-}
+**Every node's detail panel draws its own flow chart.** The pipeline graph says which functions
+reach which; `steps` on a node says what the one function *does*, and it is the only place a branch
+*inside* a kernel is written down. `AlgorithmChart` draws it in the same language as the page chart
+— the same four `kind`s, the same dashing, every arrow carrying its label, ordered fan-outs
+numbered — because they are the same claim at two scales, and a second notation would make that
+harder to see rather than easier. The shared geometry lives in `Web/src/lib/graph.ts`;
+neither chart owns it.
 
-func value() -> Value {
-  if statement == 1 {
-    return 1
-  } else if statement == 4 {
-    return 16
-  } else {
-    return 64
-  }
-}
-```
+The extractor holds a step graph to the pipeline graph's standard and then some. A node without one
+is a build error, so "this step has no chart" cannot happen quietly. So are a duplicate step id, an
+arrow into nothing, a step the entry cannot reach, and a graph with **no step that ends it** — that
+last one matters because most of these kernels are loops, and a loop drawn with no exit is a claim
+about the code that is not true of any of them. A step's `source` must resolve *and* be one the node
+already lists as evidence, so following a step into the Source tab lands on a declaration that is
+actually there.
 
-### Avoid `private static` Helper Methods For Instance Methods
-```swift
-struct Value {}
+These graphs have loops in them, which is why row assignment is not a plain longest path:
+`rankGraph` finds the back edges by DFS first and ranks over what is left, so a loop's head sits
+above its body and the returning arrow reads as a return. Two returns between the same pair of rows
+would otherwise draw the same curve, so each gets its own bow. The chart is laid out twice — the
+first pass measures how far a loop-back label bows past the leftmost node, the second gives the node
+grid that much less — and the last few percent is taken by scaling rather than by scrolling the
+panel sideways.
 
-// GOOD
-extension Value {
-  func foo() {
-    // ...
-    self.bar()
-    // ...
-  }
 
-  private func bar() {
-    // ...
-  }
-}
-
-// BAD
-extension Value {
-  func foo() {
-    // ...
-    Self.bar()
-    // ...
-  }
-
-  private static func bar() {
-    // ...
-  }
-}
-```
-
-### Prefer Sequence Algorithms Over Raw Loops
-```swift
-// GOOD
-let transformedItems = items.compactMap {
-  guard $0.count > 0 else { return nil }
-  return TransformedItem($0) 
-}
-
-let filteredItems = items.filter { $0.count > 0 }
-
-// BAD
-var transformedItems = [TransformedItem]()
-for item in items {
-  guard item.count > 0 else { continue }
-  transformedItems.append(TransformedItem(item))
-}
-
-var filteredItems = [Item]()
-for item in items {
-  guard item.count > 0 else { continue }
-  filteredItems.append(item)
-}
-```
-
-### Prefer Optional Algorithms Over Long Drawn Out Unwrap Checks
-```swift
-struct Item {
-  let name: String?
-}
-
-// GOOD
-func updatedName(item: Item) -> String? {
-  item.name.map { $0 + " Updated" }
-}
-
-// BAD
-func updatedName(item: Item) -> String? {
-  guard let name = item.name else { return nil }
-  return name + " Updated" 
-}
-```
-
-### Always Make Trivial Structs Hashable and Sendable
-```swift
-// GOOD
-struct Item: Hashable, Sendable {
-  let name: String
-  let quantity: Int
-}
-
-// BAD
-struct Item {
-  let name: String
-  let quantity: Int
-}
-```
-
-### Prefer `self.init` Instead Of Property Assignments In Initializers
-```swift
-struct Item: Hashable, Sendable {
-  let name: String
-  let quantity: Int
-}
-
-// GOOD
-extension Item {
-  init(name: String) {
-    self.init(name: name, quantity: 0)
-  }
-}
-
-// BAD
-extension Item {
-  init(name: String) {
-    self.name = name
-    self.quantity = 0
-  }
-}
-```
-
-## Concurrency
-### Avoid `@unchecked Sendable` Without Justification
-Avoid conforming to `@unchecked Sendable`, and try to always make a type conform to Sendable proper instead. If you must conform to `@unchecked Sendable`, then make sure to leave a comment explaining why it is safe to do so.
-```swift
-// GOOD
-final class Item: Sendable {
-  let count = Mutex(0)
-  // ...
-}
-
-// OK (but not always ideal, avoid if possible)
-final class Item: @unchecked Sendable {
-  // NB: @unchecked Sendable is safe because we use a lock.
-  private let lock = NSLock()
-  var count = 0
-
-  // ...
-}
-
-// BAD
-final class Item: @unchecked Sendable {
-  var count = 0
-
-  // ...
-}
-```
-
-### Avoid `Task.detached` At All Costs
-`Task.detached` is rarely useful, and can almost always be expressed in simpler ways. Prefer traditional `Task` initializations instead.
-```swift
-// GOOD
-Task { await work() }
-
-// BAD
-Task.detached { await work() }
-```
-
-### Prefer `sending` And Region Based Isolation Over Making A Type Sendable If Possible
-If the `sending` keyword and `nonisolated(nonsending)` directive can be used to solve a concurrency error related to a non-Sendable value, then use it instead of conforming the type to Sendable.
-```swift
-final class NonSendable {}
-
-// GOOD
-func work(value: sending NonSendable) {
-  Task { await value.workAsync() }
-}
-
-extension NonSendable {
-  nonisolated(nonsending) func workAsync() async {
-    // ...
-  }
-}
-
-// BAD
-extension NonSendable: Sendable {
-  func workAsync() async {
-    // ...
-  }
-}
-
-func work(value: NonSendable) {
-  Task { await value.workAsync() }
-}
-```
-
-### Non-Sendable Core, Sendable Shell
-If you need to conform an existing non-Sendable type to Sendable, consider creating a small wrapper that conforms to Sendable, and that wraps the non-Sendable core. this way, you push the need for Sendable away as far as possible. Generally, follow the principles in [this](https://whypeople.xyz/non-sendable-core-sendable-shell) article.
-
-## Testing
-### Prefer Swift Testing
-Use Swift Testing by default. You should only fallback to XCTest if you must write a test that request an `XCTestExpectation`.
-```swift
-// GOOD
-import Testing
-
-@Test
-func `My Work Does Something`() {
-  // ...
-}
-
-// OK (Only if you need to use XCTestExpectation)
-import XCTest
-
-final class MyTestSuite {
-  func testMyWorkDoesSomething() async {
-    let expectation = self.expectation(description: "Finishes")
-    // ...
-  }
-}
-
-// BAD
-import XCTest
-
-final class MyTestSuite {
-  func testMyWorkDoesSomething() {
-    // ...
-  }
-}
-```
-
-### Prefer `expectNoDifference` From CustomDump Over `#expect`
-If `CustomDump` is added as a dependency, prefer `expectNoDifference` instead of the `#expect` macro from Swift testing.
-```swift
-// GOOD
-import CustomDump
-
-@Test
-func `Matches`() {
-  let v1 = NyEquatableValue(value: 10)
-  let v2 = MyEquatableValue(value: 10)
-  expectNoDifference(v1, v2)
-}
-
-// BAD
-@Test
-func `Matches`() {
-  let v1 = NyEquatableValue(value: 10)
-  let v2 = MyEquatableValue(value: 10)
-  #expect(v1 == v2)
-}
-```
-
-### Use A Captial Letter For the First Letter Of Each Word In The Test Name
-```swift
-// GOOD
-@Test
-func `This Is A Test Of Something`() {
-  // ...
-}
-
-// BAD
-@Test
-func `this is a test of something`() {
-  // ...
-}
-```
-
-### Use `#expect(throws:)` For Detecting Errors In Swift Testing
-```swift
-// GOOD
-@Test
-func `Work Throws`() {
-  #expect(throws: WorkError.self) {
-    try work()
-  }
-}
-
-// BAD
-@Test
-func `Work Throws`() {
-  do {
-    try work()
-    Issue.record("Expected error but none thrown.")
-  } catch {
-    expectNoDifference(error is WorkError, true)
-  }
-}
-```
-
-### Use `Subject tests` For Naming Test Suites
-```swift
-// GOOD
-@Suite
-struct `MyValue tests` {
-  // ...
-}
-
-// BAD
-struct MyValueTests {
-  // ...
-}
-```
-
-## Building/Compiling
-### Use `—disable-experimental-prebuilts` To Handle Build Errors In Packages With Macros
-If you run into a build error in a package with at least 1 macro target that states that the “SwiftCompilerPlugin” cannot be found, do the following:
-- Fully delete the `.build` directory (`rm -drf .build`).
-- Rerun `swift build --build-tests --disable-experimental-prebuilts`.
-- Then proceed with the build/test/run command you were attempting before.
-
-You should also run this flow if you ever run `swift package clean`.

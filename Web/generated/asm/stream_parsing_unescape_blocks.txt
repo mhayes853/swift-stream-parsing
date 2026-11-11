@@ -1,0 +1,636 @@
+; _stream_parsing_unescape_blocks
+; _stream_parsing_unescape_blocks
+; 631 instructions
+; llvm-objdump -d, release benchmark binary
+
+1002b2bc0:     	sub	sp, sp, #0x110
+1002b2bc4:     	stp	x28, x27, [sp, #0xb0]
+1002b2bc8:     	stp	x26, x25, [sp, #0xc0]
+1002b2bcc:     	stp	x24, x23, [sp, #0xd0]
+1002b2bd0:     	stp	x22, x21, [sp, #0xe0]
+1002b2bd4:     	stp	x20, x19, [sp, #0xf0]
+1002b2bd8:     	stp	x29, x30, [sp, #0x100]
+1002b2bdc:     	add	x29, sp, #0x100
+1002b2be0:     	mov	x8, x0
+1002b2be4:     	mov	x13, #0x0               ; =0
+1002b2be8:     	mov	w9, #0x0                ; =0
+1002b2bec:     	mov	w10, #0x1               ; =1
+1002b2bf0:     	mov	w11, #0x1               ; =1
+1002b2bf4:     	mov	x0, #0x0                ; =0
+1002b2bf8:     	cmp	x1, #0x8c
+1002b2bfc:     	b.lt	0x1002b34fc <_stream_parsing_unescape_blocks+0x93c>
+1002b2c00:     	cmp	x3, #0x8c
+1002b2c04:     	b.lt	0x1002b34fc <_stream_parsing_unescape_blocks+0x93c>
+1002b2c08:     	mov	x0, #0x0                ; =0
+1002b2c0c:     	mov	x13, #0x0               ; =0
+1002b2c10:     	mov	w10, #0x0               ; =0
+1002b2c14:     	mov	x16, #0x0               ; =0
+1002b2c18:     	mov	w26, #0x0               ; =0
+1002b2c1c:     	mov	x15, #0x0               ; =0
+1002b2c20:     	mov	x14, #0x0               ; =0
+1002b2c24:     	movi.16b	v20, #0x5c
+1002b2c28:     	adrp	x9, 0x100539000 <_objc_msgSend$initWithBool:>
+1002b2c2c:     	ldr	q21, [x9, #0xfd0]
+1002b2c30:     	movi.16b	v22, #0x2
+1002b2c34:     	movi.16b	v23, #0x21
+1002b2c38:     	mov	w17, #0x10              ; =16
+1002b2c3c:     	adrp	x9, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b2c40:     	ldr	q24, [x9, #0xa00]
+1002b2c44:     	movi.16b	v25, #0xf
+1002b2c48:     	adrp	x9, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b2c4c:     	ldr	q26, [x9, #0xa10]
+1002b2c50:     	adrp	x5, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b2c54:     	add	x5, x5, #0x7f8
+1002b2c58:     	mov	x6, #-0x1               ; =-1
+1002b2c5c:     	adrp	x9, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b2c60:     	ldr	q27, [x9, #0xa20]
+1002b2c64:     	movi.16b	v28, #0x60
+1002b2c68:     	movi.16b	v29, #0x70
+1002b2c6c:     	movi.16b	v30, #0x80
+1002b2c70:     	adrp	x24, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b2c74:     	add	x24, x24, #0x8f8
+1002b2c78:     	add	x9, x8, x0
+1002b2c7c:     	add	x27, x2, x13
+1002b2c80:     	ldp	q3, q2, [x9]
+1002b2c84:     	ldp	q1, q0, [x9, #0x20]
+1002b2c88:     	stp	q3, q2, [x27]
+1002b2c8c:     	stp	q1, q0, [x27, #0x20]
+1002b2c90:     	umaxp.16b	v4, v3, v2
+1002b2c94:     	umaxp.16b	v5, v1, v0
+1002b2c98:     	umaxp.16b	v4, v4, v5
+1002b2c9c:     	cmlt.16b	v4, v4, #0
+1002b2ca0:     	shrn.8b	v4, v4, #0x4
+1002b2ca4:     	fmov	x11, d4
+1002b2ca8:     	sub	x12, x16, #0x1
+1002b2cac:     	cmp	x11, #0x0
+1002b2cb0:     	csel	x16, x17, x12, ne
+1002b2cb4:     	cset	w25, ne
+1002b2cb8:     	cmp	x16, #0x1
+1002b2cbc:     	b.ge	0x1002b32d4 <_stream_parsing_unescape_blocks+0x714>
+1002b2cc0:     	cbz	x14, 0x1002b2cd0 <_stream_parsing_unescape_blocks+0x110>
+1002b2cc4:     	ldrb	w10, [x9]
+1002b2cc8:     	ldrb	w10, [x5, x10]
+1002b2ccc:     	strb	w10, [x27]
+1002b2cd0:     	cmeq.16b	v4, v3, v20
+1002b2cd4:     	cmeq.16b	v5, v2, v20
+1002b2cd8:     	cmeq.16b	v6, v1, v20
+1002b2cdc:     	cmeq.16b	v7, v0, v20
+1002b2ce0:     	and.16b	v4, v4, v21
+1002b2ce4:     	and.16b	v5, v5, v21
+1002b2ce8:     	addp.16b	v4, v4, v5
+1002b2cec:     	and.16b	v5, v6, v21
+1002b2cf0:     	and.16b	v6, v7, v21
+1002b2cf4:     	addp.16b	v5, v5, v6
+1002b2cf8:     	addp.16b	v4, v4, v5
+1002b2cfc:     	addp.16b	v4, v4, v4
+1002b2d00:     	fmov	x10, d4
+1002b2d04:     	eor.16b	v3, v3, v22
+1002b2d08:     	cmhi.16b	v3, v23, v3
+1002b2d0c:     	eor.16b	v2, v2, v22
+1002b2d10:     	cmhi.16b	v2, v23, v2
+1002b2d14:     	eor.16b	v1, v1, v22
+1002b2d18:     	cmhi.16b	v1, v23, v1
+1002b2d1c:     	eor.16b	v0, v0, v22
+1002b2d20:     	cmhi.16b	v0, v23, v0
+1002b2d24:     	and.16b	v3, v3, v21
+1002b2d28:     	and.16b	v2, v2, v21
+1002b2d2c:     	addp.16b	v2, v3, v2
+1002b2d30:     	and.16b	v1, v1, v21
+1002b2d34:     	and.16b	v0, v0, v21
+1002b2d38:     	addp.16b	v0, v1, v0
+1002b2d3c:     	addp.16b	v0, v2, v0
+1002b2d40:     	addp.16b	v0, v0, v0
+1002b2d44:     	fmov	x11, d0
+1002b2d48:     	bic	x12, x10, x14
+1002b2d4c:     	lsl	x4, x12, #1
+1002b2d50:     	orr	x4, x4, #0xaaaaaaaaaaaaaaaa
+1002b2d54:     	sub	x12, x4, x12
+1002b2d58:     	eor	x12, x12, #0xaaaaaaaaaaaaaaaa
+1002b2d5c:     	orr	x4, x10, x14
+1002b2d60:     	and	x20, x12, x10
+1002b2d64:     	lsr	x14, x20, #63
+1002b2d68:     	eor	x10, x4, x12
+1002b2d6c:     	bic	x10, x11, x10
+1002b2d70:     	rbit	x11, x20
+1002b2d74:     	clz	x11, x11
+1002b2d78:     	sub	x12, x20, #0x1
+1002b2d7c:     	and	x12, x12, x20
+1002b2d80:     	rbit	x4, x12
+1002b2d84:     	clz	x4, x4
+1002b2d88:     	cmp	x4, #0x40
+1002b2d8c:     	cset	w7, lo
+1002b2d90:     	cmp	x11, #0x40
+1002b2d94:     	add	x19, x9, x11
+1002b2d98:     	ldrb	w21, [x19, #0x1]
+1002b2d9c:     	ldrb	w21, [x5, x21]
+1002b2da0:     	add	x22, x9, x4
+1002b2da4:     	ldrb	w28, [x22, #0x1]
+1002b2da8:     	ldrb	w30, [x5, x28]
+1002b2dac:     	cset	w23, lo
+1002b2db0:     	add	x11, x27, x11
+1002b2db4:     	strb	w21, [x11]
+1002b2db8:     	ldur	q0, [x19, #0x2]
+1002b2dbc:     	ldur	q1, [x19, #0x12]
+1002b2dc0:     	ldur	q2, [x19, #0x22]
+1002b2dc4:     	ldur	q3, [x19, #0x32]
+1002b2dc8:     	stur	q0, [x11, #0x1]
+1002b2dcc:     	add	x4, x27, x4
+1002b2dd0:     	sub	x4, x4, x23
+1002b2dd4:     	stur	q1, [x11, #0x11]
+1002b2dd8:     	stur	q2, [x11, #0x21]
+1002b2ddc:     	stur	q3, [x11, #0x31]
+1002b2de0:     	strb	w30, [x4]
+1002b2de4:     	ldur	q0, [x22, #0x2]
+1002b2de8:     	ldur	q1, [x22, #0x12]
+1002b2dec:     	ldur	q2, [x22, #0x22]
+1002b2df0:     	ldur	q3, [x22, #0x32]
+1002b2df4:     	sub	x11, x12, #0x1
+1002b2df8:     	and	x19, x11, x12
+1002b2dfc:     	cinc	x28, x7, lo
+1002b2e00:     	stur	q0, [x4, #0x1]
+1002b2e04:     	stur	q1, [x4, #0x11]
+1002b2e08:     	stur	q2, [x4, #0x21]
+1002b2e0c:     	stur	q3, [x4, #0x31]
+1002b2e10:     	cmp	w21, #0x0
+1002b2e14:     	csel	w12, wzr, w23, ne
+1002b2e18:     	cmp	w30, #0x0
+1002b2e1c:     	csel	w11, wzr, w7, ne
+1002b2e20:     	orr	x4, x19, x10
+1002b2e24:     	cbnz	x4, 0x1002b2e74 <_stream_parsing_unescape_blocks+0x2b4>
+1002b2e28:     	tbnz	w12, #0x0, 0x1002b2e74 <_stream_parsing_unescape_blocks+0x2b4>
+1002b2e2c:     	cbnz	w11, 0x1002b2e74 <_stream_parsing_unescape_blocks+0x2b4>
+1002b2e30:     	mov	w10, #0x40              ; =64
+1002b2e34:     	add	x0, x10, x0
+1002b2e38:     	sub	x9, x10, x28
+1002b2e3c:     	add	x13, x9, x13
+1002b2e40:     	cmp	x20, #0x0
+1002b2e44:     	csinc	x15, xzr, x15, ne
+1002b2e48:     	cmp	x15, #0x10
+1002b2e4c:     	b.ge	0x1002b34e8 <_stream_parsing_unescape_blocks+0x928>
+1002b2e50:     	mov	w9, #0x0                ; =0
+1002b2e54:     	add	x10, x0, #0x8c
+1002b2e58:     	cmp	x10, x1
+1002b2e5c:     	b.gt	0x1002b34ec <_stream_parsing_unescape_blocks+0x92c>
+1002b2e60:     	add	x11, x13, #0x8c
+1002b2e64:     	mov	x10, x25
+1002b2e68:     	cmp	x11, x3
+1002b2e6c:     	b.gt	0x1002b34ec <_stream_parsing_unescape_blocks+0x92c>
+1002b2e70:     	b	0x1002b2c78 <_stream_parsing_unescape_blocks+0xb8>
+1002b2e74:     	rbit	x10, x10
+1002b2e78:     	clz	x23, x10
+1002b2e7c:     	lsl	x10, x6, x23
+1002b2e80:     	cmp	x23, #0x40
+1002b2e84:     	csinv	x10, x6, x10, hs
+1002b2e88:     	mov	x28, #0x0               ; =0
+1002b2e8c:     	ands	x19, x10, x20
+1002b2e90:     	b.eq	0x1002b32c4 <_stream_parsing_unescape_blocks+0x704>
+1002b2e94:     	sub	x10, x1, x0
+1002b2e98:     	sub	x11, x3, x13
+1002b2e9c:     	cmp	x10, x11
+1002b2ea0:     	csel	x10, x10, x11, lt
+1002b2ea4:     	sub	x10, x10, #0x58
+1002b2ea8:     	stur	x10, [x29, #-0x60]
+1002b2eac:     	rbit	x10, x19
+1002b2eb0:     	clz	x10, x10
+1002b2eb4:     	add	x11, x27, x10
+1002b2eb8:     	sub	x12, x11, x28
+1002b2ebc:     	add	x22, x9, x10
+1002b2ec0:     	ldrb	w11, [x22, #0x1]
+1002b2ec4:     	ldrb	w4, [x5, w11, uxtw]
+1002b2ec8:     	sub	x7, x19, #0x1
+1002b2ecc:     	and	x19, x7, x19
+1002b2ed0:     	cbz	w4, 0x1002b2f04 <_stream_parsing_unescape_blocks+0x344>
+1002b2ed4:     	strb	w4, [x12]
+1002b2ed8:     	ldur	q0, [x22, #0x2]
+1002b2edc:     	ldur	q1, [x22, #0x12]
+1002b2ee0:     	ldur	q2, [x22, #0x22]
+1002b2ee4:     	ldur	q3, [x22, #0x32]
+1002b2ee8:     	stur	q0, [x12, #0x1]
+1002b2eec:     	stur	q1, [x12, #0x11]
+1002b2ef0:     	stur	q2, [x12, #0x21]
+1002b2ef4:     	stur	q3, [x12, #0x31]
+1002b2ef8:     	add	x28, x28, #0x1
+1002b2efc:     	cbnz	x19, 0x1002b2eac <_stream_parsing_unescape_blocks+0x2ec>
+1002b2f00:     	b	0x1002b32c4 <_stream_parsing_unescape_blocks+0x704>
+1002b2f04:     	ldrb	w4, [x22, #0x6]
+1002b2f08:     	cmp	w4, #0x5c
+1002b2f0c:     	b.ne	0x1002b2f1c <_stream_parsing_unescape_blocks+0x35c>
+1002b2f10:     	ldrb	w4, [x22, #0x12]
+1002b2f14:     	cmp	w4, #0x5c
+1002b2f18:     	b.eq	0x1002b3170 <_stream_parsing_unescape_blocks+0x5b0>
+1002b2f1c:     	cmp	w11, #0x75
+1002b2f20:     	b.ne	0x1002b357c <_stream_parsing_unescape_blocks+0x9bc>
+1002b2f24:     	ldrb	w11, [x22, #0x2]
+1002b2f28:     	ldrb	w11, [x24, x11]
+1002b2f2c:     	ldrb	w4, [x22, #0x3]
+1002b2f30:     	ldrb	w7, [x24, x4]
+1002b2f34:     	ldrb	w4, [x22, #0x4]
+1002b2f38:     	ldrb	w30, [x24, x4]
+1002b2f3c:     	ldrb	w4, [x22, #0x5]
+1002b2f40:     	ldrb	w4, [x24, x4]
+1002b2f44:     	cmp	w11, #0x0
+1002b2f48:     	ccmp	w7, #0x0, #0x4, ne
+1002b2f4c:     	ccmp	w30, #0x0, #0x4, ne
+1002b2f50:     	ccmp	w4, #0x0, #0x4, ne
+1002b2f54:     	b.eq	0x1002b357c <_stream_parsing_unescape_blocks+0x9bc>
+1002b2f58:     	lsl	w11, w11, #12
+1002b2f5c:     	sub	w11, w11, #0x1, lsl #12 ; =0x1000
+1002b2f60:     	lsl	w7, w7, #8
+1002b2f64:     	sub	w7, w7, #0x100
+1002b2f68:     	orr	w11, w7, w11
+1002b2f6c:     	lsl	w7, w30, #4
+1002b2f70:     	sub	w7, w7, #0x10
+1002b2f74:     	sub	w4, w4, #0x1
+1002b2f78:     	orr	w4, w7, w4
+1002b2f7c:     	orr	w30, w11, w4
+1002b2f80:     	lsr	w11, w30, #11
+1002b2f84:     	cmp	w11, #0x1b
+1002b2f88:     	b.lo	0x1002b3000 <_stream_parsing_unescape_blocks+0x440>
+1002b2f8c:     	and	w11, w30, #0xfe000
+1002b2f90:     	cmp	w11, #0xe, lsl #12      ; =0xe000
+1002b2f94:     	b.eq	0x1002b3000 <_stream_parsing_unescape_blocks+0x440>
+1002b2f98:     	lsr	w11, w30, #10
+1002b2f9c:     	cmp	w11, #0x37
+1002b2fa0:     	b.lo	0x1002b3038 <_stream_parsing_unescape_blocks+0x478>
+1002b2fa4:     	lsr	w11, w30, #13
+1002b2fa8:     	cmp	w11, #0x6
+1002b2fac:     	ccmp	x10, #0x6, #0x0, ls
+1002b2fb0:     	b.lo	0x1002b357c <_stream_parsing_unescape_blocks+0x9bc>
+1002b2fb4:     	sub	x11, x10, #0x6
+1002b2fb8:     	lsr	x11, x20, x11
+1002b2fbc:     	tbz	w11, #0x0, 0x1002b357c <_stream_parsing_unescape_blocks+0x9bc>
+1002b2fc0:     	ldurb	w11, [x22, #-0x5]
+1002b2fc4:     	cmp	w11, #0x75
+1002b2fc8:     	b.ne	0x1002b357c <_stream_parsing_unescape_blocks+0x9bc>
+1002b2fcc:     	ldurb	w11, [x22, #-0x4]
+1002b2fd0:     	ldrb	w11, [x24, x11]
+1002b2fd4:     	cmp	w11, #0xe
+1002b2fd8:     	b.ne	0x1002b357c <_stream_parsing_unescape_blocks+0x9bc>
+1002b2fdc:     	ldurb	w11, [x22, #-0x3]
+1002b2fe0:     	ldrb	w11, [x24, x11]
+1002b2fe4:     	sub	w11, w11, #0x9
+1002b2fe8:     	cmp	w11, #0x4
+1002b2fec:     	b.hs	0x1002b357c <_stream_parsing_unescape_blocks+0x9bc>
+1002b2ff0:     	mov	w30, #0x0               ; =0
+1002b2ff4:     	mov	x7, #0x0                ; =0
+1002b2ff8:     	mov	w11, #0x6               ; =6
+1002b2ffc:     	b	0x1002b3138 <_stream_parsing_unescape_blocks+0x578>
+1002b3000:     	cmp	w30, #0x80
+1002b3004:     	b.hs	0x1002b3014 <_stream_parsing_unescape_blocks+0x454>
+1002b3008:     	mov	w11, #0x6               ; =6
+1002b300c:     	mov	w7, #0x1                ; =1
+1002b3010:     	b	0x1002b3138 <_stream_parsing_unescape_blocks+0x578>
+1002b3014:     	cmp	w30, #0x7ff
+1002b3018:     	b.hi	0x1002b30d8 <_stream_parsing_unescape_blocks+0x518>
+1002b301c:     	ubfiz	w11, w30, #8, #6
+1002b3020:     	orr	w11, w11, w30, lsr #6
+1002b3024:     	mov	w4, #0x80c0             ; =32960
+1002b3028:     	orr	w30, w11, w4
+1002b302c:     	mov	w11, #0x6               ; =6
+1002b3030:     	mov	w7, #0x2                ; =2
+1002b3034:     	b	0x1002b3138 <_stream_parsing_unescape_blocks+0x578>
+1002b3038:     	ldrb	w11, [x22, #0x6]
+1002b303c:     	cmp	w11, #0x5c
+1002b3040:     	b.ne	0x1002b357c <_stream_parsing_unescape_blocks+0x9bc>
+1002b3044:     	ldrb	w11, [x22, #0x7]
+1002b3048:     	cmp	w11, #0x75
+1002b304c:     	b.ne	0x1002b357c <_stream_parsing_unescape_blocks+0x9bc>
+1002b3050:     	ldrb	w11, [x22, #0x8]
+1002b3054:     	ldrb	w11, [x24, x11]
+1002b3058:     	cbz	w11, 0x1002b357c <_stream_parsing_unescape_blocks+0x9bc>
+1002b305c:     	ldrb	w4, [x22, #0x9]
+1002b3060:     	ldrb	w7, [x24, x4]
+1002b3064:     	cbz	w7, 0x1002b357c <_stream_parsing_unescape_blocks+0x9bc>
+1002b3068:     	ldrb	w4, [x22, #0xa]
+1002b306c:     	ldrb	w4, [x24, x4]
+1002b3070:     	cbz	w4, 0x1002b357c <_stream_parsing_unescape_blocks+0x9bc>
+1002b3074:     	ldrb	w21, [x22, #0xb]
+1002b3078:     	ldrb	w21, [x24, x21]
+1002b307c:     	cbz	w21, 0x1002b357c <_stream_parsing_unescape_blocks+0x9bc>
+1002b3080:     	lsl	w11, w11, #12
+1002b3084:     	sub	w11, w11, #0x1, lsl #12 ; =0x1000
+1002b3088:     	lsl	w7, w7, #8
+1002b308c:     	sub	w7, w7, #0x100
+1002b3090:     	orr	w11, w7, w11
+1002b3094:     	lsl	w4, w4, #4
+1002b3098:     	sub	w4, w4, #0x10
+1002b309c:     	sub	w7, w21, #0x1
+1002b30a0:     	orr	w4, w4, w7
+1002b30a4:     	orr	w4, w11, w4
+1002b30a8:     	sub	w11, w4, #0xe, lsl #12  ; =0xe000
+1002b30ac:     	cmn	w11, #0x400
+1002b30b0:     	b.lo	0x1002b357c <_stream_parsing_unescape_blocks+0x9bc>
+1002b30b4:     	cmp	x10, #0x39
+1002b30b8:     	mov	w11, #0x6               ; =6
+1002b30bc:     	mov	w7, #0xc                ; =12
+1002b30c0:     	csel	x11, x7, x11, hi
+1002b30c4:     	add	w4, w4, w30, lsl #10
+1002b30c8:     	mov	w7, #0x2400             ; =9216
+1002b30cc:     	movk	w7, #0xfca0, lsl #16
+1002b30d0:     	add	w30, w4, w7
+1002b30d4:     	b	0x1002b3110 <_stream_parsing_unescape_blocks+0x550>
+1002b30d8:     	lsr	w11, w30, #16
+1002b30dc:     	cbnz	w11, 0x1002b310c <_stream_parsing_unescape_blocks+0x54c>
+1002b30e0:     	lsl	w11, w30, #2
+1002b30e4:     	and	w11, w11, #0x3f00
+1002b30e8:     	ubfiz	w4, w30, #16, #6
+1002b30ec:     	orr	w11, w11, w30, lsr #12
+1002b30f0:     	mov	w7, #0x80e0             ; =32992
+1002b30f4:     	movk	w7, #0x80, lsl #16
+1002b30f8:     	orr	w4, w4, w7
+1002b30fc:     	orr	w30, w11, w4
+1002b3100:     	mov	w11, #0x6               ; =6
+1002b3104:     	mov	w7, #0x3                ; =3
+1002b3108:     	b	0x1002b3138 <_stream_parsing_unescape_blocks+0x578>
+1002b310c:     	mov	w11, #0x6               ; =6
+1002b3110:     	lsr	w4, w30, #6
+1002b3114:     	lsr	w7, w30, #4
+1002b3118:     	and	w7, w7, #0x3f00
+1002b311c:     	orr	w7, w7, w30, lsr #18
+1002b3120:     	bfi	w7, w4, #16, #6
+1002b3124:     	bfi	w7, w30, #24, #6
+1002b3128:     	mov	w4, #0x80f0             ; =33008
+1002b312c:     	movk	w4, #0x8080, lsl #16
+1002b3130:     	orr	w30, w7, w4
+1002b3134:     	mov	w7, #0x4                ; =4
+1002b3138:     	str	w30, [x12]
+1002b313c:     	add	x12, x12, x7
+1002b3140:     	add	x4, x22, x11
+1002b3144:     	ldp	q0, q1, [x4]
+1002b3148:     	ldp	q2, q3, [x4, #0x20]
+1002b314c:     	stp	q0, q1, [x12]
+1002b3150:     	stp	q2, q3, [x12, #0x20]
+1002b3154:     	sub	x12, x11, x7
+1002b3158:     	add	x28, x12, x28
+1002b315c:     	add	x10, x11, x10
+1002b3160:     	cmp	x10, #0x40
+1002b3164:     	b.hi	0x1002b336c <_stream_parsing_unescape_blocks+0x7ac>
+1002b3168:     	cbnz	x19, 0x1002b2eac <_stream_parsing_unescape_blocks+0x2ec>
+1002b316c:     	b	0x1002b32c4 <_stream_parsing_unescape_blocks+0x704>
+1002b3170:     	str	x23, [sp, #0x8]
+1002b3174:     	stp	q27, q26, [sp, #0x10]
+1002b3178:     	stp	q24, q21, [sp, #0x30]
+1002b317c:     	stp	w25, w26, [x29, #-0x68]
+1002b3180:     	stp	x15, x16, [x29, #-0x78]
+1002b3184:     	mov	x25, x14
+1002b3188:     	stp	x2, x13, [sp, #0x78]
+1002b318c:     	stp	x3, x1, [sp, #0x68]
+1002b3190:     	stp	x0, x8, [sp, #0x58]
+1002b3194:     	mov	x24, x9
+1002b3198:     	mov	x0, x9
+1002b319c:     	mov	x1, x10
+1002b31a0:     	mov	x21, x12
+1002b31a4:     	mov	x2, x12
+1002b31a8:     	ldur	x3, [x29, #-0x60]
+1002b31ac:     	mov	x26, x10
+1002b31b0:     	bl	0x1002b359c <_stream_parsing_unescape_bmp_run>
+1002b31b4:     	subs	x8, x0, x26
+1002b31b8:     	b.ne	0x1002b3228 <_stream_parsing_unescape_blocks+0x668>
+1002b31bc:     	ldrb	w11, [x22, #0x1]
+1002b31c0:     	ldp	x0, x8, [sp, #0x58]
+1002b31c4:     	ldp	x3, x1, [sp, #0x68]
+1002b31c8:     	ldp	x2, x13, [sp, #0x78]
+1002b31cc:     	mov	x9, x24
+1002b31d0:     	mov	x10, x26
+1002b31d4:     	mov	x12, x21
+1002b31d8:     	mov	x14, x25
+1002b31dc:     	ldp	x15, x16, [x29, #-0x78]
+1002b31e0:     	mov	w17, #0x10              ; =16
+1002b31e4:     	adrp	x5, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b31e8:     	add	x5, x5, #0x7f8
+1002b31ec:     	mov	x6, #-0x1               ; =-1
+1002b31f0:     	adrp	x24, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b31f4:     	add	x24, x24, #0x8f8
+1002b31f8:     	ldp	w25, w26, [x29, #-0x68]
+1002b31fc:     	movi.16b	v20, #0x5c
+1002b3200:     	ldp	q24, q21, [sp, #0x30]
+1002b3204:     	movi.16b	v22, #0x2
+1002b3208:     	movi.16b	v23, #0x21
+1002b320c:     	movi.16b	v25, #0xf
+1002b3210:     	ldp	q27, q26, [sp, #0x10]
+1002b3214:     	movi.16b	v28, #0x60
+1002b3218:     	movi.16b	v29, #0x70
+1002b321c:     	movi.16b	v30, #0x80
+1002b3220:     	ldr	x23, [sp, #0x8]
+1002b3224:     	b	0x1002b2f1c <_stream_parsing_unescape_blocks+0x35c>
+1002b3228:     	mov	x10, x0
+1002b322c:     	add	x9, x21, x8, asr #1
+1002b3230:     	add	x28, x28, x8, asr #1
+1002b3234:     	add	x8, x24, x0
+1002b3238:     	ldp	q0, q1, [x8]
+1002b323c:     	ldp	q2, q3, [x8, #0x20]
+1002b3240:     	stp	q0, q1, [x9]
+1002b3244:     	stp	q2, q3, [x9, #0x20]
+1002b3248:     	mov	x8, #-0x1               ; =-1
+1002b324c:     	lsl	x8, x8, x0
+1002b3250:     	and	x8, x8, x19
+1002b3254:     	cmp	x0, #0x3f
+1002b3258:     	csel	x19, xzr, x8, gt
+1002b325c:     	cmp	x0, #0x40
+1002b3260:     	b.gt	0x1002b348c <_stream_parsing_unescape_blocks+0x8cc>
+1002b3264:     	ldp	x0, x8, [sp, #0x58]
+1002b3268:     	ldp	x3, x1, [sp, #0x68]
+1002b326c:     	ldp	x2, x13, [sp, #0x78]
+1002b3270:     	mov	x9, x24
+1002b3274:     	mov	x14, x25
+1002b3278:     	ldp	x15, x16, [x29, #-0x78]
+1002b327c:     	mov	w17, #0x10              ; =16
+1002b3280:     	adrp	x5, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b3284:     	add	x5, x5, #0x7f8
+1002b3288:     	mov	x6, #-0x1               ; =-1
+1002b328c:     	adrp	x24, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b3290:     	add	x24, x24, #0x8f8
+1002b3294:     	ldp	w25, w26, [x29, #-0x68]
+1002b3298:     	movi.16b	v20, #0x5c
+1002b329c:     	ldp	q24, q21, [sp, #0x30]
+1002b32a0:     	movi.16b	v22, #0x2
+1002b32a4:     	movi.16b	v23, #0x21
+1002b32a8:     	movi.16b	v25, #0xf
+1002b32ac:     	ldp	q27, q26, [sp, #0x10]
+1002b32b0:     	movi.16b	v28, #0x60
+1002b32b4:     	movi.16b	v29, #0x70
+1002b32b8:     	movi.16b	v30, #0x80
+1002b32bc:     	ldr	x23, [sp, #0x8]
+1002b32c0:     	cbnz	x19, 0x1002b2eac <_stream_parsing_unescape_blocks+0x2ec>
+1002b32c4:     	mov	w10, #0x40              ; =64
+1002b32c8:     	cmp	x23, #0x3f
+1002b32cc:     	b.ls	0x1002b3578 <_stream_parsing_unescape_blocks+0x9b8>
+1002b32d0:     	b	0x1002b2e34 <_stream_parsing_unescape_blocks+0x274>
+1002b32d4:     	rbit	x12, x11
+1002b32d8:     	clz	x12, x12
+1002b32dc:     	lsr	x12, x12, #2
+1002b32e0:     	clz	x4, x11
+1002b32e4:     	mov	w7, #0x3f               ; =63
+1002b32e8:     	sub	w4, w7, w4
+1002b32ec:     	cmp	x11, #0x0
+1002b32f0:     	csel	x11, x12, xzr, ne
+1002b32f4:     	sbfx	x12, x4, #2, #30
+1002b32f8:     	csel	x12, x12, xzr, ne
+1002b32fc:     	add	x4, x9, x11, lsl #2
+1002b3300:     	ldur	q4, [x4, #-0x1]
+1002b3304:     	ldur	q5, [x4, #-0x2]
+1002b3308:     	ldur	q6, [x4, #-0x3]
+1002b330c:     	ldur	q7, [x4, #-0x4]
+1002b3310:     	ushr.16b	v16, v5, #0x4
+1002b3314:     	tbl.16b	v16, { v24 }, v16
+1002b3318:     	and.16b	v5, v5, v25
+1002b331c:     	tbl.16b	v5, { v26 }, v5
+1002b3320:     	and.16b	v5, v5, v16
+1002b3324:     	ushr.16b	v4, v4, #0x4
+1002b3328:     	tbl.16b	v4, { v27 }, v4
+1002b332c:     	and.16b	v4, v5, v4
+1002b3330:     	uqsub.16b	v5, v6, v28
+1002b3334:     	uqsub.16b	v6, v7, v29
+1002b3338:     	orr.16b	v5, v6, v5
+1002b333c:     	and.16b	v5, v5, v30
+1002b3340:     	eor.16b	v4, v5, v4
+1002b3344:     	sub	x11, x12, x11
+1002b3348:     	cmp	x11, #0x2
+1002b334c:     	cset	w12, gt
+1002b3350:     	orr	w11, w26, w12
+1002b3354:     	cbnz	w11, 0x1002b3374 <_stream_parsing_unescape_blocks+0x7b4>
+1002b3358:     	mov	w26, #0x0               ; =0
+1002b335c:     	umaxv.16b	b4, v4
+1002b3360:     	fmov	w11, s4
+1002b3364:     	cbnz	w11, 0x1002b3590 <_stream_parsing_unescape_blocks+0x9d0>
+1002b3368:     	b	0x1002b2cc0 <_stream_parsing_unescape_blocks+0x100>
+1002b336c:     	mov	x14, #0x0               ; =0
+1002b3370:     	b	0x1002b32c8 <_stream_parsing_unescape_blocks+0x708>
+1002b3374:     	ldur	q5, [x9, #-0x1]
+1002b3378:     	ldur	q6, [x9, #-0x2]
+1002b337c:     	ldur	q7, [x9, #-0x3]
+1002b3380:     	ushr.16b	v16, v5, #0x4
+1002b3384:     	tbl.16b	v16, { v24 }, v16
+1002b3388:     	and.16b	v5, v5, v25
+1002b338c:     	tbl.16b	v5, { v26 }, v5
+1002b3390:     	and.16b	v5, v5, v16
+1002b3394:     	ushr.16b	v16, v3, #0x4
+1002b3398:     	tbl.16b	v16, { v27 }, v16
+1002b339c:     	and.16b	v5, v5, v16
+1002b33a0:     	uqsub.16b	v6, v6, v28
+1002b33a4:     	uqsub.16b	v7, v7, v29
+1002b33a8:     	orr.16b	v6, v7, v6
+1002b33ac:     	and.16b	v6, v6, v30
+1002b33b0:     	eor.16b	v5, v6, v5
+1002b33b4:     	ldur	q6, [x9, #0xf]
+1002b33b8:     	ldur	q7, [x9, #0xe]
+1002b33bc:     	ldur	q16, [x9, #0xd]
+1002b33c0:     	ushr.16b	v17, v6, #0x4
+1002b33c4:     	tbl.16b	v17, { v24 }, v17
+1002b33c8:     	and.16b	v6, v6, v25
+1002b33cc:     	tbl.16b	v6, { v26 }, v6
+1002b33d0:     	and.16b	v6, v6, v17
+1002b33d4:     	ushr.16b	v17, v2, #0x4
+1002b33d8:     	tbl.16b	v17, { v27 }, v17
+1002b33dc:     	and.16b	v6, v6, v17
+1002b33e0:     	uqsub.16b	v7, v7, v28
+1002b33e4:     	uqsub.16b	v16, v16, v29
+1002b33e8:     	orr.16b	v7, v16, v7
+1002b33ec:     	and.16b	v7, v7, v30
+1002b33f0:     	eor.16b	v6, v7, v6
+1002b33f4:     	ldur	q7, [x9, #0x1f]
+1002b33f8:     	ldur	q16, [x9, #0x1e]
+1002b33fc:     	ldur	q17, [x9, #0x1d]
+1002b3400:     	ushr.16b	v18, v7, #0x4
+1002b3404:     	tbl.16b	v18, { v24 }, v18
+1002b3408:     	and.16b	v7, v7, v25
+1002b340c:     	tbl.16b	v7, { v26 }, v7
+1002b3410:     	and.16b	v7, v7, v18
+1002b3414:     	ushr.16b	v18, v1, #0x4
+1002b3418:     	tbl.16b	v18, { v27 }, v18
+1002b341c:     	and.16b	v7, v7, v18
+1002b3420:     	uqsub.16b	v16, v16, v28
+1002b3424:     	uqsub.16b	v17, v17, v29
+1002b3428:     	orr.16b	v16, v17, v16
+1002b342c:     	and.16b	v16, v16, v30
+1002b3430:     	eor.16b	v7, v16, v7
+1002b3434:     	ldur	q16, [x9, #0x2f]
+1002b3438:     	ldur	q17, [x9, #0x2e]
+1002b343c:     	ldur	q18, [x9, #0x2d]
+1002b3440:     	ushr.16b	v19, v16, #0x4
+1002b3444:     	tbl.16b	v19, { v24 }, v19
+1002b3448:     	and.16b	v16, v16, v25
+1002b344c:     	tbl.16b	v16, { v26 }, v16
+1002b3450:     	and.16b	v16, v16, v19
+1002b3454:     	ushr.16b	v19, v0, #0x4
+1002b3458:     	tbl.16b	v19, { v27 }, v19
+1002b345c:     	and.16b	v16, v16, v19
+1002b3460:     	uqsub.16b	v17, v17, v28
+1002b3464:     	uqsub.16b	v18, v18, v29
+1002b3468:     	orr.16b	v17, v18, v17
+1002b346c:     	and.16b	v17, v17, v30
+1002b3470:     	eor.16b	v16, v17, v16
+1002b3474:     	orr.16b	v5, v5, v6
+1002b3478:     	orr.16b	v6, v7, v16
+1002b347c:     	orr.16b	v5, v5, v6
+1002b3480:     	orr.16b	v4, v5, v4
+1002b3484:     	mov	x26, x12
+1002b3488:     	b	0x1002b335c <_stream_parsing_unescape_blocks+0x79c>
+1002b348c:     	mov	x14, #0x0               ; =0
+1002b3490:     	ldp	x0, x8, [sp, #0x58]
+1002b3494:     	ldp	x3, x1, [sp, #0x68]
+1002b3498:     	ldp	x2, x13, [sp, #0x78]
+1002b349c:     	ldp	x15, x16, [x29, #-0x78]
+1002b34a0:     	mov	w17, #0x10              ; =16
+1002b34a4:     	adrp	x5, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b34a8:     	add	x5, x5, #0x7f8
+1002b34ac:     	mov	x6, #-0x1               ; =-1
+1002b34b0:     	adrp	x24, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b34b4:     	add	x24, x24, #0x8f8
+1002b34b8:     	ldp	w25, w26, [x29, #-0x68]
+1002b34bc:     	movi.16b	v20, #0x5c
+1002b34c0:     	ldp	q24, q21, [sp, #0x30]
+1002b34c4:     	movi.16b	v22, #0x2
+1002b34c8:     	movi.16b	v23, #0x21
+1002b34cc:     	movi.16b	v25, #0xf
+1002b34d0:     	ldp	q27, q26, [sp, #0x10]
+1002b34d4:     	movi.16b	v28, #0x60
+1002b34d8:     	movi.16b	v29, #0x70
+1002b34dc:     	movi.16b	v30, #0x80
+1002b34e0:     	ldr	x23, [sp, #0x8]
+1002b34e4:     	b	0x1002b32c8 <_stream_parsing_unescape_blocks+0x708>
+1002b34e8:     	mov	w9, #0x3                ; =3
+1002b34ec:     	cmp	x14, #0x0
+1002b34f0:     	cset	w10, eq
+1002b34f4:     	cmp	w25, #0x0
+1002b34f8:     	cset	w11, eq
+1002b34fc:     	tbz	w10, #0x0, 0x1002b351c <_stream_parsing_unescape_blocks+0x95c>
+1002b3500:     	tbnz	w11, #0x0, 0x1002b3550 <_stream_parsing_unescape_blocks+0x990>
+1002b3504:     	add	x8, x8, x0
+1002b3508:     	ldurb	w10, [x8, #-0x1]
+1002b350c:     	cmp	w10, #0xbf
+1002b3510:     	b.ls	0x1002b3524 <_stream_parsing_unescape_blocks+0x964>
+1002b3514:     	mov	w8, #0x1                ; =1
+1002b3518:     	b	0x1002b3548 <_stream_parsing_unescape_blocks+0x988>
+1002b351c:     	sub	x0, x0, #0x1
+1002b3520:     	b	0x1002b3550 <_stream_parsing_unescape_blocks+0x990>
+1002b3524:     	ldurb	w10, [x8, #-0x2]
+1002b3528:     	cmp	w10, #0xdf
+1002b352c:     	b.ls	0x1002b3538 <_stream_parsing_unescape_blocks+0x978>
+1002b3530:     	mov	w8, #0x2                ; =2
+1002b3534:     	b	0x1002b3548 <_stream_parsing_unescape_blocks+0x988>
+1002b3538:     	ldurb	w8, [x8, #-0x3]
+1002b353c:     	cmp	w8, #0xef
+1002b3540:     	mov	w8, #0x3                ; =3
+1002b3544:     	csel	x8, x8, xzr, hi
+1002b3548:     	sub	x0, x0, x8
+1002b354c:     	sub	x13, x13, x8
+1002b3550:     	mov	w8, w9
+1002b3554:     	orr	x1, x8, x13, lsl #2
+1002b3558:     	ldp	x29, x30, [sp, #0x100]
+1002b355c:     	ldp	x20, x19, [sp, #0xf0]
+1002b3560:     	ldp	x22, x21, [sp, #0xe0]
+1002b3564:     	ldp	x24, x23, [sp, #0xd0]
+1002b3568:     	ldp	x26, x25, [sp, #0xc0]
+1002b356c:     	ldp	x28, x27, [sp, #0xb0]
+1002b3570:     	add	sp, sp, #0x110
+1002b3574:     	ret
+1002b3578:     	mov	x10, x23
+1002b357c:     	add	x0, x10, x0
+1002b3580:     	add	x8, x10, x13
+1002b3584:     	sub	x13, x8, x28
+1002b3588:     	mov	w9, #0x1                ; =1
+1002b358c:     	b	0x1002b3550 <_stream_parsing_unescape_blocks+0x990>
+1002b3590:     	mov	w9, #0x2                ; =2
+1002b3594:     	mov	x25, x10
+1002b3598:     	b	0x1002b34ec <_stream_parsing_unescape_blocks+0x92c>

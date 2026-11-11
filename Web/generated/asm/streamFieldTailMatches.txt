@@ -1,0 +1,32 @@
+; StreamParsingCore.streamFieldTailMatches(_: Swift.UnsafePointer<StreamParsingCore.StreamFieldEntry>, keyBytes: Swift.UnsafePointer<Swift.UInt8>, _: Swift.Span<Swift.UInt8>) -> Swift.Bool
+; _$s17StreamParsingCore22streamFieldTailMatches_8keyBytes_SbSPyAA0aE5EntryVG_SPys5UInt8VGs4SpanVyAHGtF
+; 27 instructions
+; llvm-objdump -d, release benchmark binary
+
+1002f0748:     	cbz	x2, 0x1002f078c <_$s17StreamParsingCore22streamFieldTailMatches_8keyBytes_SbSPyAA0aE5EntryVG_SPys5UInt8VGs4SpanVyAHGtF+0x44>
+1002f074c:     	ldr	w8, [x0, #0x18]
+1002f0750:     	add	x8, x1, x8
+1002f0754:     	sub	x9, x3, #0x8
+1002f0758:     	cmp	x3, #0x11
+1002f075c:     	b.lo	0x1002f0780 <_$s17StreamParsingCore22streamFieldTailMatches_8keyBytes_SbSPyAA0aE5EntryVG_SPys5UInt8VGs4SpanVyAHGtF+0x38>
+1002f0760:     	mov	w10, #0x8               ; =8
+1002f0764:     	ldr	x11, [x8, x10]
+1002f0768:     	ldr	x12, [x2, x10]
+1002f076c:     	cmp	x11, x12
+1002f0770:     	b.ne	0x1002f07ac <_$s17StreamParsingCore22streamFieldTailMatches_8keyBytes_SbSPyAA0aE5EntryVG_SPys5UInt8VGs4SpanVyAHGtF+0x64>
+1002f0774:     	add	x10, x10, #0x8
+1002f0778:     	cmp	x10, x9
+1002f077c:     	b.lt	0x1002f0764 <_$s17StreamParsingCore22streamFieldTailMatches_8keyBytes_SbSPyAA0aE5EntryVG_SPys5UInt8VGs4SpanVyAHGtF+0x1c>
+1002f0780:     	ldr	x8, [x8, x9]
+1002f0784:     	ldr	x9, [x2, x9]
+1002f0788:     	b	0x1002f07a0 <_$s17StreamParsingCore22streamFieldTailMatches_8keyBytes_SbSPyAA0aE5EntryVG_SPys5UInt8VGs4SpanVyAHGtF+0x58>
+1002f078c:     	ldr	w8, [x0, #0x18]
+1002f0790:     	add	x8, x1, x8
+1002f0794:     	ldur	x8, [x8, #-0x8]
+1002f0798:     	mov	x9, #-0x8               ; =-8
+1002f079c:     	ldr	x9, [x9]
+1002f07a0:     	cmp	x8, x9
+1002f07a4:     	cset	w0, eq
+1002f07a8:     	ret
+1002f07ac:     	mov	w0, #0x0                ; =0
+1002f07b0:     	ret

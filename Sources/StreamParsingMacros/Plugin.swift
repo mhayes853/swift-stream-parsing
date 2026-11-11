@@ -2,10 +2,11 @@ import SwiftCompilerPlugin
 import SwiftSyntaxMacros
 
 @main
-struct OperationMacrosPlugin: CompilerPlugin {
+struct StreamParsingMacrosPlugin: CompilerPlugin {
   let providingMacros: [any Macro.Type] = [
     StreamParseableMacro.self,
     StreamParseableMemberMacro.self,
-    StreamParseableIgnoredMacro.self
+    StreamParseableIgnoredMacro.self,
+    StreamParseableDefaultMacro.self
   ]
 }

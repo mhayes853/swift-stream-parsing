@@ -1,0 +1,68 @@
+# Smoke tests
+
+`MacroSupport` is a separate downstream package whose own macro imports the public
+`StreamParsingMacroSupport` product. It composes partial storage, schemas and a custom view,
+then compiles and executes both UTF-8 matching strategies. Run it in both modes:
+
+```sh
+swift run --package-path SmokeTests/MacroSupport --disable-experimental-prebuilts MacroSupportSmoke
+swift run --package-path SmokeTests/MacroSupport --traits LifetimeView --disable-experimental-prebuilts MacroSupportSmoke
+```
+
+The fixture forwards its trait to the dependency, checking that the macro support target and
+runtime choose the same default view mode across a package boundary.
+
+`NoLifetimeSmoke` expands and runs `@StreamParseable` without enabling `LifetimeView`,
+`Lifetimes`, or `AddressableTypes`:
+
+```sh
+swift run --package-path SmokeTests NoLifetimeSmoke
+```
+
+`EmbeddedSmoke` builds and links `StreamParsingCore` into a freestanding executable under
+Embedded Swift, then parses a payload through the real parser and a hand-written sink:
+
+```sh
+swiftly run +6.4.x-snapshot-2026-08-01 swift build --package-path SmokeTests \
+  --product EmbeddedSmoke \
+  --swift-sdk swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-08-01-a_wasm-embedded
+
+wasmer run SmokeTests/.build/out/Products/Debug-webassembly-wasm32/EmbeddedSmoke.wasm
+```
+
+Existentials, dynamic casts, metatypes, key paths, untyped `throws` and unspecialized generics
+all compile without complaint on Darwin. They only fail when the embedded compiler has to lower
+them, or at link time. A compile-only check is not enough, so this produces an actual linked
+`.wasm`, and running it checks the parse rather than just the lowering: `precondition` traps as
+`unreachable`, so a wrong answer fails the run.
+
+Builds on 6.3.2 and on 6.4. The core enables `SuppressedAssociatedTypes` for the view layer's
+`associatedtype View: ~Copyable`; consumers do not need the flag. `AsyncSequence+Partials.swift`
+is gated out under `hasFeature(Embedded)`, since the 6.3 embedded SDK has no concurrency and a
+target with no scheduler has no use for an async byte stream.
+
+```sh
+swiftly run +6.3.2 swift build --package-path SmokeTests --product EmbeddedSmoke \
+  --swift-sdk swift-6.3.2-RELEASE_wasm-embedded
+```
+
+What it covers:
+
+- The parser is built on a caller supplied buffer rather than the allocating initializer, which
+  is how it is meant to be used where there is no heap to speak of.
+- The sink folds the document into counters and checksums, so no `String`, no `Array`, nothing
+  that allocates.
+- Every count and checksum is compared across chunk sizes 7, 3 and 1 as well as the whole
+  document, because resumability breaks the same way on a microcontroller as anywhere else.
+- Completed-value conversions exercise typed failures, retained concrete errors, reverse conversion,
+  and nonthrowing strategies with an inferred `Never` error type. A small scalar sink forwards
+  parser tokens directly to the conversion schema; using `PartialSink` also pulls in floating-point
+  runtime symbols (`_swift_stdlib_strtod_clocale` / `_swift_stdlib_strtof_clocale`) missing from
+  the installed 6.3.2 wasm SDK.
+- A malformed document has to be rejected here too, so typed `throws` is exercised rather than
+  assumed.
+
+Writing it turned up something worth knowing: keys arrive through the collapsed `key(_:)`,
+because the parser always buffers them, while strings arrive through `stringBegin`, `stringChunk`
+and `stringEnd`, because they are emitted as runs. A sink that counts strings only in the
+collapsed form counts zero.

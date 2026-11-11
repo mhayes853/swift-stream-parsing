@@ -1,0 +1,58 @@
+; StreamParsingCore.JSONParser.emitKeyInPlace<A where A: StreamParsingCore.StreamParseSink, A: ~Swift.Copyable>(base: Swift.UnsafeRawPointer, from: Swift.Int, to: Swift.Int, containsNonASCII: Swift.Bool, into: inout A) throws(StreamParsingCore.JSONParsingError) -> ()
+; _$s17StreamParsingCore10JSONParserV14emitKeyInPlace4base4from2to16containsNonASCII4intoySV_S2iSbxztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF
+; 53 instructions
+; llvm-objdump -d, release benchmark binary
+
+100290924:     	str	x28, [sp, #-0x60]!
+100290928:     	stp	x27, x26, [sp, #0x10]
+10029092c:     	stp	x25, x24, [sp, #0x20]
+100290930:     	stp	x23, x22, [sp, #0x30]
+100290934:     	stp	x20, x19, [sp, #0x40]
+100290938:     	stp	x29, x30, [sp, #0x50]
+10029093c:     	add	x29, sp, #0x50
+100290940:     	mov	x19, x20
+100290944:     	mov	x23, x6
+100290948:     	mov	x24, x5
+10029094c:     	mov	x25, x4
+100290950:     	mov	x22, x2
+100290954:     	mov	x27, x1
+100290958:     	mov	x28, x0
+10029095c:     	tbz	w3, #0x0, 0x100290980 <_$s17StreamParsingCore10JSONParserV14emitKeyInPlace4base4from2to16containsNonASCII4intoySV_S2iSbxztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x5c>
+100290960:     	mov	x0, x28
+100290964:     	mov	x1, x27
+100290968:     	mov	x2, x22
+10029096c:     	mov	x3, x22
+100290970:     	mov	w4, #0x0                ; =0
+100290974:     	mov	x20, x19
+100290978:     	bl	0x100293978 <_$s17StreamParsingCore10JSONParserV19validateNonASCIIRun4base4from2to8reportAtySV_S3iSgtAA16JSONParsingErrorVYKF>
+10029097c:     	cbnz	x21, 0x1002909d8 <_$s17StreamParsingCore10JSONParserV14emitKeyInPlace4base4from2to16containsNonASCII4intoySV_S2iSbxztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0xb4>
+100290980:     	mov	x26, x21
+100290984:     	sub	x1, x22, x27
+100290988:     	ldr	x8, [x23, #0x28]
+10029098c:     	add	x0, x28, x27
+100290990:     	mov	x20, x25
+100290994:     	mov	x2, x24
+100290998:     	mov	x3, x23
+10029099c:     	blr	x8
+1002909a0:     	ldr	x8, [x23, #0x70]
+1002909a4:     	mov	x0, x24
+1002909a8:     	mov	x1, x23
+1002909ac:     	blr	x8
+1002909b0:     	and	w8, w0, #0xff
+1002909b4:     	cmp	w8, #0x4
+1002909b8:     	b.ne	0x1002909c4 <_$s17StreamParsingCore10JSONParserV14emitKeyInPlace4base4from2to16containsNonASCII4intoySV_S2iSbxztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0xa0>
+1002909bc:     	mov	x21, x26
+1002909c0:     	b	0x1002909dc <_$s17StreamParsingCore10JSONParserV14emitKeyInPlace4base4from2to16containsNonASCII4intoySV_S2iSbxztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0xb8>
+1002909c4:     	ldr	x8, [x19, #0x38]
+1002909c8:     	add	x8, x22, x8
+1002909cc:     	add	x1, x8, #0x1
+1002909d0:     	mov	x21, x26
+1002909d4:     	bl	0x100296234 <_$s17StreamParsingCore10JSONParserV17failSinkRejection_10byteOffsets5NeverOAA0aF7FailureV_SitAA16JSONParsingErrorVYKFZTf4nnd_n>
+1002909d8:     	mov	w21, #0x1               ; =1
+1002909dc:     	ldp	x29, x30, [sp, #0x50]
+1002909e0:     	ldp	x20, x19, [sp, #0x40]
+1002909e4:     	ldp	x23, x22, [sp, #0x30]
+1002909e8:     	ldp	x25, x24, [sp, #0x20]
+1002909ec:     	ldp	x27, x26, [sp, #0x10]
+1002909f0:     	ldr	x28, [sp], #0x60
+1002909f4:     	ret

@@ -1,0 +1,16 @@
+; StreamParsingCore.streamFirstHitLane(Swift.SIMDMask<Swift.SIMD16<Swift.Int8>>) -> Swift.Int
+; _$s17StreamParsingCore18streamFirstHitLaneySis8SIMDMaskVys6SIMD16Vys4Int8VGGF
+; 11 instructions
+; llvm-objdump -d, release benchmark binary
+
+1002bfa84:     	mov.d	x8, v0[1]
+1002bfa88:     	fmov	x9, d0
+1002bfa8c:     	rbit	x10, x9
+1002bfa90:     	clz	x10, x10
+1002bfa94:     	rbit	x8, x8
+1002bfa98:     	clz	x8, x8
+1002bfa9c:     	lsr	x8, x8, #3
+1002bfaa0:     	cmp	x9, #0x0
+1002bfaa4:     	csel	x8, x8, xzr, eq
+1002bfaa8:     	add	x0, x8, x10, lsr #3
+1002bfaac:     	ret

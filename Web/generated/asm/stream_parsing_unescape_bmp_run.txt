@@ -1,0 +1,128 @@
+; _stream_parsing_unescape_bmp_run
+; _stream_parsing_unescape_bmp_run
+; 123 instructions
+; llvm-objdump -d, release benchmark binary
+
+1002b359c:     	add	x8, x0, x1
+1002b35a0:     	ldrb	w9, [x8, #0x2]
+1002b35a4:     	sub	w9, w9, #0x30
+1002b35a8:     	cmp	w9, #0x34
+1002b35ac:     	mov	w10, #0x1               ; =1
+1002b35b0:     	lsl	x10, x10, x9
+1002b35b4:     	mov	x9, #0x10000000100000   ; =4503599628419072
+1002b35b8:     	movk	x9, #0x1
+1002b35bc:     	and	x10, x10, x9
+1002b35c0:     	ccmp	x10, #0x0, #0x4, ls
+1002b35c4:     	b.ne	0x1002b35ec <_stream_parsing_unescape_bmp_run+0x50>
+1002b35c8:     	ldrb	w8, [x8, #0x8]
+1002b35cc:     	sub	w8, w8, #0x30
+1002b35d0:     	cmp	w8, #0x34
+1002b35d4:     	mov	w10, #0x1               ; =1
+1002b35d8:     	lsl	x8, x10, x8
+1002b35dc:     	and	x8, x8, x9
+1002b35e0:     	ccmp	x8, #0x0, #0x4, ls
+1002b35e4:     	ccmp	x1, x3, #0x0, eq
+1002b35e8:     	b.le	0x1002b35f4 <_stream_parsing_unescape_bmp_run+0x58>
+1002b35ec:     	mov	x0, x1
+1002b35f0:     	ret
+1002b35f4:     	stp	d13, d12, [sp, #-0x30]!
+1002b35f8:     	stp	d11, d10, [sp, #0x10]
+1002b35fc:     	stp	d9, d8, [sp, #0x20]
+1002b3600:     	movi.16b	v0, #0xd0
+1002b3604:     	adrp	x8, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b3608:     	ldr	q1, [x8, #0xa30]
+1002b360c:     	adrp	x8, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b3610:     	ldr	q2, [x8, #0xa40]
+1002b3614:     	movi.16b	v3, #0x20
+1002b3618:     	movi.16b	v4, #0x9f
+1002b361c:     	adrp	x8, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b3620:     	ldr	q5, [x8, #0xa50]
+1002b3624:     	adrp	x8, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b3628:     	ldr	q6, [x8, #0xa60]
+1002b362c:     	movi.16b	v7, #0xa
+1002b3630:     	movi.16b	v16, #0x6
+1002b3634:     	adrp	x8, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b3638:     	ldr	q17, [x8, #0xa70]
+1002b363c:     	movi.16b	v18, #0xa9
+1002b3640:     	adrp	x8, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b3644:     	ldr	q19, [x8, #0xa80]
+1002b3648:     	adrp	x8, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b364c:     	ldr	q20, [x8, #0xa90]
+1002b3650:     	adrp	x8, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b3654:     	ldr	q21, [x8, #0xaa0]
+1002b3658:     	adrp	x8, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b365c:     	ldr	q22, [x8, #0xab0]
+1002b3660:     	adrp	x8, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b3664:     	ldr	q23, [x8, #0xac0]
+1002b3668:     	adrp	x8, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b366c:     	ldr	q24, [x8, #0xad0]
+1002b3670:     	movi.16b	v25, #0x7
+1002b3674:     	movi.16b	v26, #0xd
+1002b3678:     	adrp	x8, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b367c:     	ldr	q27, [x8, #0xae0]
+1002b3680:     	mov	w8, #0xff               ; =255
+1002b3684:     	add	x9, x0, x1
+1002b3688:     	ldp	q28, q29, [x9]
+1002b368c:     	add.16b	v30, v28, v0
+1002b3690:     	add.16b	v31, v29, v0
+1002b3694:     	orr.16b	v8, v28, v3
+1002b3698:     	add.16b	v9, v8, v4
+1002b369c:     	orr.16b	v10, v29, v3
+1002b36a0:     	add.16b	v11, v10, v4
+1002b36a4:     	cmhi.16b	v12, v7, v30
+1002b36a8:     	cmhi.16b	v13, v7, v31
+1002b36ac:     	cmhi.16b	v9, v16, v9
+1002b36b0:     	orr.16b	v9, v12, v9
+1002b36b4:     	cmhi.16b	v11, v16, v11
+1002b36b8:     	orr.16b	v11, v13, v11
+1002b36bc:     	cmeq.16b	v28, v28, v1
+1002b36c0:     	bif.16b	v28, v9, v2
+1002b36c4:     	cmeq.16b	v29, v29, v5
+1002b36c8:     	bit.16b	v29, v11, v6
+1002b36cc:     	orr.16b	v9, v29, v17
+1002b36d0:     	add.16b	v29, v8, v18
+1002b36d4:     	bit.16b	v29, v30, v12
+1002b36d8:     	add.16b	v8, v10, v18
+1002b36dc:     	mov.16b	v30, v13
+1002b36e0:     	bsl.16b	v30, v31, v8
+1002b36e4:     	tbl.16b	v31, { v29, v30 }, v19
+1002b36e8:     	tbl.16b	v29, { v29, v30 }, v20
+1002b36ec:     	and.16b	v30, v31, v21
+1002b36f0:     	ushl.16b	v30, v30, v22
+1002b36f4:     	ushl.16b	v29, v29, v23
+1002b36f8:     	orr.16b	v29, v29, v24
+1002b36fc:     	orr.16b	v29, v30, v29
+1002b3700:     	ext.16b	v30, v31, v31, #0x1
+1002b3704:     	cmhi.16b	v30, v30, v25
+1002b3708:     	and.16b	v30, v30, v26
+1002b370c:     	cmeq.16b	v30, v31, v30
+1002b3710:     	orn.16b	v31, v27, v30
+1002b3714:     	and.16b	v8, v28, v9
+1002b3718:     	and.16b	v31, v8, v31
+1002b371c:     	uminv.16b	b31, v31
+1002b3720:     	fmov	w9, s31
+1002b3724:     	bics	wzr, w8, w9
+1002b3728:     	b.ne	0x1002b3740 <_stream_parsing_unescape_bmp_run+0x1a4>
+1002b372c:     	str	q29, [x2], #0xc
+1002b3730:     	add	x1, x1, #0x18
+1002b3734:     	cmp	x1, x3
+1002b3738:     	b.le	0x1002b3684 <_stream_parsing_unescape_bmp_run+0xe8>
+1002b373c:     	b	0x1002b3778 <_stream_parsing_unescape_bmp_run+0x1dc>
+1002b3740:     	adrp	x8, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b3744:     	ldr	q0, [x8, #0xaf0]
+1002b3748:     	orn.16b	v0, v0, v30
+1002b374c:     	adrp	x8, 0x100550000 <_stream_parsing_pow10_128_storage+0x2170>
+1002b3750:     	ldr	q1, [x8, #0xb00]
+1002b3754:     	orr.16b	v1, v28, v1
+1002b3758:     	and.16b	v0, v1, v0
+1002b375c:     	shl.16b	v0, v0, #0x7
+1002b3760:     	cmlt.16b	v0, v0, #0
+1002b3764:     	uminv.16b	b0, v0
+1002b3768:     	fmov	w8, s0
+1002b376c:     	tbz	w8, #0x0, 0x1002b3778 <_stream_parsing_unescape_bmp_run+0x1dc>
+1002b3770:     	str	q29, [x2]
+1002b3774:     	add	x1, x1, #0xc
+1002b3778:     	ldp	d9, d8, [sp, #0x20]
+1002b377c:     	ldp	d11, d10, [sp, #0x10]
+1002b3780:     	ldp	d13, d12, [sp], #0x30
+1002b3784:     	b	0x1002b35ec <_stream_parsing_unescape_bmp_run+0x50>
