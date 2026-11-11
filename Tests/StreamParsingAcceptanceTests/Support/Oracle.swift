@@ -96,10 +96,10 @@ func expectCorpusMatchesFoundation(
 /// frame in debug builds, which overflows the 512 KB stacks of Swift Concurrency's pool threads
 /// that the test runner uses. The overflow is the test's, not the library's.
 func onLargeStack<T>(_ body: @escaping () throws -> T) throws -> T {
-  let box = LargeStackResult<T>()
+  let box = LargeStackResult<T>(body: body)
   let done = DispatchSemaphore(value: 0)
   let thread = Thread {
-    box.result = Result { try body() }
+    box.result = Result { try box.body() }
     done.signal()
   }
   thread.stackSize = 64 << 20
@@ -108,6 +108,14 @@ func onLargeStack<T>(_ body: @escaping () throws -> T) throws -> T {
   return try box.result!.get()
 }
 
+/// Carries `body` and its result across the thread hop. `Thread`'s block is `@Sendable`, and
+/// `body` is not; the caller blocks on the semaphore until the thread is done, so nothing runs
+/// concurrently with it.
 private final class LargeStackResult<T>: @unchecked Sendable {
+  let body: () throws -> T
   var result: Result<T, any Error>?
+
+  init(body: @escaping () throws -> T) {
+    self.body = body
+  }
 }

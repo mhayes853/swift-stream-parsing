@@ -77,7 +77,9 @@ jobs:
 
   android:
     name: Android
-    runs-on: ubuntu-latest
+    # Pinned: on ubuntu-latest (26.04) the action asks download.swift.org for an ubuntu26.04
+    # 6.3 host toolchain, which does not exist.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: "Test Swift Package on Android"

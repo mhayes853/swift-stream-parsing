@@ -1805,7 +1805,7 @@
       "symbol" : "oracle"
     }
   },
-  "generatedAt" : "2026-11-10T11:52:02Z",
+  "generatedAt" : "2026-11-11T07:05:23Z",
   "guides" : {
     "macro-support" : {
       "path" : "Sources/StreamParsingMacroSupport/Documentation.docc/StreamParsingMacroSupport.md",
@@ -2921,7 +2921,7 @@
       {
         "file" : "Tests/StreamParsingAcceptanceTests/ZZScratchAuditReproTests.swift",
         "key" : "ZZScratchAuditReproTests.swift:stringEnumPrefixIsNotAValue",
-        "line" : 60,
+        "line" : 62,
         "name" : "stringEnumPrefixIsNotAValue",
         "parameterized" : true,
         "suite" : "ScratchAuditRepro",
@@ -2930,7 +2930,7 @@
       {
         "file" : "Tests/StreamParsingAcceptanceTests/ZZScratchAuditReproTests.swift",
         "key" : "ZZScratchAuditReproTests.swift:duplicateKeys",
-        "line" : 69,
+        "line" : 73,
         "name" : "duplicateKeys",
         "parameterized" : true,
         "suite" : "ScratchAuditRepro",
@@ -2939,7 +2939,7 @@
       {
         "file" : "Tests/StreamParsingAcceptanceTests/ZZScratchAuditReproTests.swift",
         "key" : "ZZScratchAuditReproTests.swift:integralNumberWithFractionOrExponent",
-        "line" : 79,
+        "line" : 85,
         "name" : "integralNumberWithFractionOrExponent",
         "parameterized" : true,
         "suite" : "ScratchAuditRepro",
@@ -2948,7 +2948,7 @@
       {
         "file" : "Tests/StreamParsingAcceptanceTests/ZZScratchAuditReproTests.swift",
         "key" : "ZZScratchAuditReproTests.swift:doubleUnderflow",
-        "line" : 88,
+        "line" : 96,
         "name" : "doubleUnderflow",
         "parameterized" : false,
         "suite" : "ScratchAuditRepro",
@@ -2957,7 +2957,7 @@
       {
         "file" : "Tests/StreamParsingAcceptanceTests/ZZScratchAuditReproTests.swift",
         "key" : "ZZScratchAuditReproTests.swift:dataIsNotBase64Decoded",
-        "line" : 95,
+        "line" : 105,
         "name" : "dataIsNotBase64Decoded",
         "parameterized" : false,
         "suite" : "ScratchAuditRepro",
@@ -2966,7 +2966,7 @@
       {
         "file" : "Tests/StreamParsingAcceptanceTests/ZZScratchAuditReproTests.swift",
         "key" : "ZZScratchAuditReproTests.swift:completionRejectionOffset",
-        "line" : 124,
+        "line" : 137,
         "name" : "completionRejectionOffset",
         "parameterized" : false,
         "suite" : "ZZScratchOffsetRepro",

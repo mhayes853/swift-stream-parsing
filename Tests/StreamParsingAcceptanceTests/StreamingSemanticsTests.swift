@@ -185,8 +185,16 @@ struct `Streaming semantics` {
       stream.withView { view in
         #expect(view.id?.value == snapshot.id)
         #expect(view.model?.value == snapshot.model)
-        #expect(view.usage?.input_tokens?.value == snapshot.usage?.input_tokens)
-        #expect(view.usage?.output_tokens?.value == snapshot.usage?.output_tokens)
+        // Bind the nested view before reading through it: `view.usage?.input_tokens?.value`
+        // borrows a temporary `usage` view that optional chaining ends before the leaf is read,
+        // which the compiler rejects as a lifetime-dependent value escaping its scope.
+        switch view.usage {
+        case .some(let usage):
+          #expect(usage.input_tokens?.value == snapshot.usage?.input_tokens)
+          #expect(usage.output_tokens?.value == snapshot.usage?.output_tokens)
+        case .none:
+          #expect(snapshot.usage == nil)
+        }
         #expect(view.content?.value.count == snapshot.content?.count)
       }
       checks += 1
